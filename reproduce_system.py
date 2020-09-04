@@ -686,6 +686,8 @@ class PeriodSolverWrapper:
         else:
             max_age = max_age.to(units.Gyr).value
 
+        if 'required_ages' not in evolve_kwargs:
+            evolve_kwargs['required_ages'] = None
         binary.evolve(
             #False positive
             #pylint: disable=no-member
@@ -693,7 +695,6 @@ class PeriodSolverWrapper:
             self.configuration['max_timestep'],
             #pylint: enable=no-member
             1e-6,
-            None,
             **evolve_kwargs
         )
 

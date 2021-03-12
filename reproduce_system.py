@@ -205,12 +205,16 @@ def create_star(mass,
 
     #False positive
     #pylint: disable=no-member
-    star = EvolvingStar(mass=mass.to(units.M_sun).value,
-                        metallicity=feh,
-                        wind_strength=wind_strength,
-                        wind_saturation_frequency=wind_saturation_frequency,
-                        diff_rot_coupling_timescale=diff_rot_coupling_timescale,
-                        interpolator=interpolator)
+    star = EvolvingStar(
+        mass=mass.to_value(units.M_sun),
+        metallicity=feh,
+        wind_strength=wind_strength,
+        wind_saturation_frequency=wind_saturation_frequency,
+        diff_rot_coupling_timescale=(
+            diff_rot_coupling_timescale.to_value(units.Gyr)
+        ),
+        interpolator=interpolator
+    )
     #pylint: enable=no-member
     print('Core formation age = ' + repr(star.core_formation_age()))
     star.select_interpolation_region(star.core_formation_age()
@@ -244,22 +248,19 @@ def get_interpolator(stellar_evolution_interpolator_dir,
     }
     return manager.get_interpolator(**interpolator_args)
 
-#This does serve the purpose of a single function to pass to a solver.
+#This serves the purpose of a single function to pass to a solver.
 #pylint: disable=too-few-public-methods
 class PeriodSolverWrapper:
     """Provide methods to pass to a solver for initial ecc. or obliquity."""
 
-    def _create_system_components(self):
-        """Create the two objects comprising the system to evolve."""
+    def _create_primary(self):
+        """Create the primary object in the system."""
 
-        mprimary=getattr(self.system,
-                         'Mprimary',
-                         self.system.primary_mass)
-        msecondary=getattr(self.system,
-                           'Msecondary',
-                           self.system.secondary_mass)
+        mprimary = getattr(self.system,
+                           'Mprimary',
+                           self.system.primary_mass)
 
-        primary = create_star(
+        return create_star(
             mprimary,
             self.system.feh,
             self.interpolator['primary'],
@@ -272,8 +273,17 @@ class PeriodSolverWrapper:
                 self.configuration['primary_core_envelope_coupling_timescale']
             )
         )
+
+
+    def _create_secondary(self):
+        """Create the two objects comprising the system to evolve."""
+
+        msecondary = getattr(self.system,
+                             'Msecondary',
+                             self.system.secondary_mass)
+
         if self.secondary_star:
-            secondary = create_star(
+            return create_star(
                 msecondary,
                 self.system.feh,
                 self.interpolator['secondary'],
@@ -287,15 +297,63 @@ class PeriodSolverWrapper:
                 ],
                 interpolation_age=self.configuration['disk_dissipation_age']
             )
-        else:
-            secondary = create_planet(
-                msecondary,
-                getattr(self.system,
-                        'Rsecondary',
-                        self.system.secondary_radius),
-                self.configuration['dissipation']['secondary']
+
+        return create_planet(
+            msecondary,
+            getattr(self.system,
+                    'Rsecondary',
+                    self.system.secondary_radius),
+            self.configuration['dissipation']['secondary']
+        )
+
+    def _get_secondary_initial_angmom(self):
+        """Return the angular momentum of the secondary when binary forms."""
+
+        if not self.secondary_star:
+            return (0.0, 0.0)
+
+        secondary = self._create_secondary()
+        mock_companion = create_planet(1.0, 1.0)
+        binary = Binary(
+            primary=secondary,
+            secondary=mock_companion,
+            initial_orbital_period=1.0,
+            initial_eccentricity=0.0,
+            initial_inclination=0.0,
+            disk_lock_frequency=(
+                2.0 * scipy.pi
+                /
+                self.configuration['secondary_disk_period']
+            ),
+            disk_dissipation_age=(
+                2.0
+                *
+                self.configuration['disk_dissipation_age']
             )
-        return primary, secondary
+        )
+        binary.configure(age=secondary.core_formation_age(),
+                         semimajor=float('nan'),
+                         eccentricity=float('nan'),
+                         spin_angmom=scipy.array([0.0]),
+                         inclination=None,
+                         periapsis=None,
+                         evolution_mode='LOCKED_SURFACE_SPIN')
+
+        secondary.detect_stellar_wind_saturation()
+
+        binary.evolve(
+            self.configuration['disk_dissipation_age'],
+            self.configuration['max_timestep'],
+            1e-6,
+            None
+        )
+        final_state = binary.final_state()
+
+        secondary.delete()
+        mock_companion.delete()
+        binary.delete()
+
+        return final_state.envelope_angmom, final_state.core_angmom
 
     def _create_system(self,
                        primary,
@@ -480,7 +538,8 @@ class PeriodSolverWrapper:
             ),
             max_porb_initial=1000.0
         )
-        primary, secondary = self._create_system_components()
+        primary = self._create_primary()
+        secondary = self._create_secondary()
         self.porb_initial, self.psurf = find_ic(self.target_state,
                                                 primary,
                                                 secondary)
@@ -514,6 +573,7 @@ class PeriodSolverWrapper:
                  secondary_wind_strength,
                  secondary_wind_saturation,
                  secondary_core_envelope_coupling_timescale,
+                 secondary_disk_period=None,
                  secondary_star=False,
                  orbital_period_tolerance=1e-6):
         """
@@ -525,6 +585,9 @@ class PeriodSolverWrapper:
             interpolator:    The stellar evolution interpolator to use, could
                 also be a pair of interpolators, one to use for the primary and
                 one for the secondary.
+
+            current_age:    The present day age of the system (when the target
+                state is to be reproduced).
 
             disk_period: The period at which the primaly will initially spin.
 
@@ -543,6 +606,31 @@ class PeriodSolverWrapper:
                 primary and secondary in the system. It should have two keys:
                 `'primary'` and `'secondary'`, each containing the argument for
                 the corresponding component.
+
+            primary_wind_strength:    The normilazation constant defining how
+                fast angular momentum is lost by the primary star.
+
+            primary_wind_saturation:    The angular velocity above which the
+                rate of angular momentum loss switches from being proportional
+                to the cube of the angular velocity to linear for the primary
+                star.
+
+            primary_core_envelope_coupling_timescale:    The timescale over
+                which the core and envelope of the primary converge toward solid
+                body rotation.
+
+            secondary_wind_strength:    Analogous to primary_wind_strength but
+                for the secondary.
+
+            secondary_wind_saturation:    Analogous to primary_wind_saturation
+                but for the secondary.
+
+            secondary_core_envelope_coupling_timescale:    Analogous to
+                primary_core_envelope_coupling_timescale but for the secondary.
+
+            secondary_disk_period:    The period to which the surface spin of
+                the secondary is locked before the binary forms. If None, the
+                primary disk period is used.
 
             secondary_star:    True iff the secondary object is a star.
 
@@ -592,7 +680,11 @@ class PeriodSolverWrapper:
                 secondary_core_envelope_coupling_timescale
             ),
             secondary_wind_strength=secondary_wind_strength,
-            secondary_wind_saturation=secondary_wind_saturation
+            secondary_wind_saturation=secondary_wind_saturation,
+            secondary_disk_period=(secondary_disk_period
+                                   or
+                                   disk_period).to_value(units.day)
+
         )
         self.porb_initial = None
         self.psurf = None
@@ -666,7 +758,8 @@ class PeriodSolverWrapper:
 
         if self.porb_initial is None:
             self._get_final_state(initial_eccentricity, initial_obliquity)
-        primary, secondary = self._create_system_components()
+        primary = self._create_primary()
+        secondary = self._create_secondary()
 
         binary = self._create_system(
             primary,
@@ -736,6 +829,7 @@ def find_evolution(system,
                    secondary_wind_strength=0.0,
                    secondary_wind_saturation=100.0,
                    secondary_core_envelope_coupling_timescale=0.05,
+                   secondary_disk_period=None,
                    orbital_period_tolerance=1e-6,
                    solve=True,
                    secondary_is_star=None,
@@ -771,13 +865,18 @@ def find_evolution(system,
             PeriodSolverWrapper.__init__().
 
         disk_period:    The spin period of the primary star's surface convective
-            zone until the secondary appears.
+            zone until the secondary appears. If not specified, defaults to
+            `system.Pprimary` or the period implied by `system.Vsini`.
 
         disk_dissipation_age:    The age at which the secondary appears and the
             primary's spin is released.
 
         secondary_wind_strength:    The wind strength parameter of the
             secondary.
+
+        secondary_disk_period:    The period to which the secondary's surface
+            spin is locked until the binary forms. If None, defaults to
+            `disk_period`.
 
         orbital_period_tolerance:    The tolerance to which to find the initial
             orbital preiod when trying to match the final one.
@@ -835,6 +934,7 @@ def find_evolution(system,
         secondary_core_envelope_coupling_timescale=(
             secondary_core_envelope_coupling_timescale
         ),
+        secondary_disk_period=secondary_disk_period,
         orbital_period_tolerance=orbital_period_tolerance
     )
     if solve:

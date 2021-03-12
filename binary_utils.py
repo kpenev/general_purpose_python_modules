@@ -43,7 +43,7 @@ def calculate_secondary_mass(primary_mass,
         )
         /
         primary_mass
-    ).to('')
+    ).to_value('')
 
     solutions = numpy.roots([numpy.sin(inclination)**3,
                              -mass_ratio_function,

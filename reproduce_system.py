@@ -4,6 +4,7 @@
 
 from glob import glob
 import os.path
+import logging
 
 import scipy
 from astropy import units
@@ -216,7 +217,6 @@ def create_star(mass,
         interpolator=interpolator
     )
     #pylint: enable=no-member
-    print('Core formation age = ' + repr(star.core_formation_age()))
     star.select_interpolation_region(star.core_formation_age()
                                      if interpolation_age is None else
                                      interpolation_age)
@@ -493,13 +493,10 @@ class PeriodSolverWrapper:
                 )
 
             for quantity_name in ['radius', 'lum', 'iconv', 'irad']:
-                print('Start params: ' + repr(star_params))
                 quantity = interpolators[component](
                     quantity_name,
                     **star_params
                 )
-                print(quantity_name + ' age range: ' + repr((quantity.min_age,
-                                                             quantity.max_age)))
                 values = scipy.full(evolution.age.shape, scipy.nan)
 
                 #TODO: determine age range properly (requires C/C++ code
@@ -652,8 +649,12 @@ class PeriodSolverWrapper:
             planet_formation_age=disk_dissipation_age.to(units.Gyr).value
             #pylint: enable=no-member
         )
-        print('For system:\n\t' + repr(system))
-        print('Targeting:\n\t' + self.target_state.format('\n\t'))
+        logging.getLogger(__name__).info(
+            'For system:\n\t%s'
+            '\nTargeting:\n\t%s',
+            repr(system),
+            self.target_state.format('\n\t')
+        )
 
         self.system = system
         if isinstance(interpolator, MESAInterpolator):
@@ -718,7 +719,6 @@ class PeriodSolverWrapper:
             initial_obliquity=self.system.obliquity
         ).eccentricity
         #pylint: enable=no-member
-        print('Final eccentricity: ' + repr(final_eccentricity))
 
         return final_eccentricity - self.system.eccentricity
 
@@ -730,7 +730,6 @@ class PeriodSolverWrapper:
             initial_obliquity=initial_obliquity
         ).envelope_inclination
         #pylint: enable=no-member
-        print('Final obliquity: ' + repr(final_obliquity))
 
         return final_obliquity - self.system.obliquity
 

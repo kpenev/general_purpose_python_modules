@@ -536,7 +536,8 @@ class PeriodSolverWrapper:
             return (0.0, 0.0)
 
         secondary = self._create_secondary()
-        mock_companion = self._create_planet(1.0, 1.0)
+        mock_companion = self._create_planet(1.0 * units.M_jup,
+                                             1.0 * units.R_jup)
         binary = Binary(
             primary=secondary,
             secondary=mock_companion,

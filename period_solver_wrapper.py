@@ -338,16 +338,19 @@ class PeriodSolverWrapper:
         """Return the final state or evolution of the system matching target."""
 
         find_ic = InitialConditionSolver(
-            disk_dissipation_age=self.configuration['disk_dissipation_age'],
             evolution_max_time_step=self.configuration['max_timestep'],
             evolution_precision=evolve_kwargs.get('precision', 1e-6),
             initial_eccentricity=initial_eccentricity,
             initial_inclination=initial_obliquity,
             initial_secondary_angmom=initial_secondary_angmom,
-            orbital_period_tolerance=(
-                self.configuration['orbital_period_tolerance']
-            ),
-            max_porb_initial=1000.0
+            max_porb_initial=1000.0,
+            **{
+                param: self.configuration[param]
+                for param in ['disk_dissipation_age',
+                              'orbital_period_tolerance',
+                              'period_search_factor',
+                              'scaled_period_guess']
+            }
         )
         primary = self._create_primary()
         secondary = self._create_secondary()
@@ -400,6 +403,8 @@ class PeriodSolverWrapper:
                  secondary_disk_period=None,
                  secondary_star=False,
                  orbital_period_tolerance=1e-6,
+                 period_search_factor=2.0,
+                 scaled_period_guess=1.0,
                  **extra_evolve_args):
         """
         Get ready for the solver.
@@ -462,6 +467,12 @@ class PeriodSolverWrapper:
             orbital_period_tolerance:    How precisely do we need to match the
                 present day orbital period (relative error).
 
+            period_search_factor:    See same name argument to
+                :meth:`InitialConditionSolver.__init__`
+
+            scaled_period_guess:    See same name argument to
+                :meth:`InitialConditionSolver.__init__`
+
             extra_evolve_args:    Additional arguments to pass to binary.evolve.
 
         Returns:
@@ -514,8 +525,9 @@ class PeriodSolverWrapper:
             secondary_wind_saturation=secondary_wind_saturation,
             secondary_disk_period=(secondary_disk_period
                                    or
-                                   disk_period).to_value(units.day)
-
+                                   disk_period).to_value(units.day),
+            period_search_factor=period_search_factor,
+            scaled_period_guess=scaled_period_guess
         )
         self.porb_initial = None
         self.psurf = None

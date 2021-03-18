@@ -187,6 +187,8 @@ def find_evolution(system,
                    secondary_core_envelope_coupling_timescale=0.05,
                    secondary_disk_period=None,
                    orbital_period_tolerance=1e-6,
+                   period_search_factor=2.0,
+                   scaled_period_guess=1.0,
                    solve=True,
                    secondary_is_star=None,
                    **extra_evolve_args):
@@ -236,6 +238,12 @@ def find_evolution(system,
 
         orbital_period_tolerance:    The tolerance to which to find the initial
             orbital preiod when trying to match the final one.
+
+        period_search_factor:    See same name argument to
+            :meth:`InitialConditionSolver.__init__`
+
+        scaled_period_guess:    See same name argument to
+            :meth:`InitialConditionSolver.__init__`
 
         solve:    If False, no attempt is made to find initial orbital period
             and/or eccentricity. Instead, the system parameters are assumed to
@@ -292,6 +300,8 @@ def find_evolution(system,
         ),
         secondary_disk_period=secondary_disk_period,
         orbital_period_tolerance=orbital_period_tolerance,
+        period_search_factor=period_search_factor,
+        scaled_period_guess=scaled_period_guess,
         **extra_evolve_args
     )
     if solve:

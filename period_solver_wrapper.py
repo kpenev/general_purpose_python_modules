@@ -341,6 +341,7 @@ class PeriodSolverWrapper:
             disk_dissipation_age=self.configuration['disk_dissipation_age'],
             evolution_max_time_step=self.configuration['max_timestep'],
             evolution_precision=evolve_kwargs.get('precision', 1e-6),
+            evolution_timeout=evolve_kwargs.get('timeout', 0),
             initial_eccentricity=initial_eccentricity,
             initial_inclination=initial_obliquity,
             initial_secondary_angmom=initial_secondary_angmom,

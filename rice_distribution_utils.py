@@ -9,6 +9,8 @@ from scipy.optimize import root_scalar
 from scipy.stats import norm, rice
 import numpy
 
+_logger = logging.getLogger(__name__)
+
 def rice_from_error_bars(value, abs_plus_error, abs_minus_error):
     """Return a Rice distribution reproducing the given mode & standard dev."""
 
@@ -44,8 +46,11 @@ def rice_from_error_bars(value, abs_plus_error, abs_minus_error):
 
         b_min = 0.0
         b_min_lower_diff = lower_diff(b_min, scale)
-        if b_min_lower_diff < 1e-8:
+        if abs(b_min_lower_diff) < 1e-8:
             return b_min
+        _logger.debug('b_min_lower_diff(%s) = %s',
+                      repr(scale),
+                      repr(b_min_lower_diff))
         assert b_min_lower_diff >= 0
 
         b_max = (value + abs_plus_error) / scale
@@ -68,7 +73,7 @@ def rice_from_error_bars(value, abs_plus_error, abs_minus_error):
 
         scale_max = (value - abs_minus_error) / rice.ppf(norm.cdf(-1.0), b=0)
 
-        if scale_equation(scale_max) > 0:
+        if scale_max <= 0 or scale_equation(scale_max) > 0:
             return None
 
         scale_min = 0.1 * min(abs_minus_error, abs_plus_error)
@@ -84,7 +89,7 @@ def rice_from_error_bars(value, abs_plus_error, abs_minus_error):
 
     scale = find_scale()
     if scale is None:
-        logging.getLogger(__name__).warning(
+        _logger.warning(
             'Lower and upper limits of %s and %s cannot be matched to 16-th '
             'and 84-th percentiles of a Rice distribution. Matching upper '
             'limit and assuming b=0',

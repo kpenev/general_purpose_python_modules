@@ -14,52 +14,68 @@ class BoundedPowerlawDistribution(stats.rv_continuous):
     def _pdf(self, x):
         """The fully normalized PDF."""
 
+        x = numpy.atleast_1d(x)
         min_x, max_x = self.support()
-        if min_x < x < max_x:
-            return self._norm * x**(self._powerlaw - 1)
-        return 0.0
+        result = numpy.zeros(x.shape, dtype=float)
+        result[numpy.logical_and(min_x <= x, x <= max_x)] = (
+            self._norm
+            *
+            x**(self._powerlaw - 1)
+        )
+        return result
 
     def _lodpdf(self, x):
         """More accurate expression for log of :meth:`pdf`."""
 
-        return numpy.log(self._norm) + (self._powerlaw - 1) * numpy.log(x)
+        x = numpy.atleast_1d(x)
+        min_x, max_x = self.support()
+        result = numpy.zeros(x.shape, dtype=float)
+        result[numpy.logical_and(min_x <= x, x <= max_x)] = (
+            numpy.log(self._norm)
+            +
+            (self._powerlaw - 1) * numpy.log(x)
+        )
+        return result
 
     def _cdf(self, x):
         """The cumulative distribution function."""
 
+        x = numpy.atleast_1d(x)
         min_x, max_x = self.support()
+        result = numpy.empty(x.shape, dtype=float)
 
-        if x < min_x:
-            return 0.0
+        result[x < min_x] = 0.0
 
-        if x > max_x:
-            return 1.0
+        result[x > max_x] = 1.0
 
-        return (
+        result[numpy.logical_and(min_x <= x, x <= max_x)] = (
             self._norm
             *
             (x**self._powerlaw - min_x**self._powerlaw)
             /
             self._powerlaw
         )
-
+        return result
 
     def _ppf(self, quantile):
         """The inverse of :meth:`_cdf`."""
 
-        assert 0.0 <= quantile <= 1.0
+        quantile = numpy.atleast_1d(quantile)
+        assert (quantile >= 0.0).all()
+        assert (quantile <= 1.0).all()
 
         min_x, max_x = self.support()
+        result = numpy.empty(quantile.shape, dtype=float)
 
-        if quantile == 0:
-            return min_x
+        result[quantile == 0] = min_x
 
-        if quantile == 1:
-            return max_x
+        result[quantile == 1] = max_x
 
-        return (
+        result[numpy.logical_and(quantile > 0, quantile < 1)] = (
             quantile * self._powerlaw / self._norm + min_x**self._powerlaw
         )**(1.0 / self._powerlaw)
+
+        return result
 
     def __init__(self, powerlaw, *args, **kwargs):
         """Normalize distribution per specified support."""
@@ -81,14 +97,12 @@ def create_check_plots():
     plot_x = 10.0**numpy.linspace(-0.5, 1.5, 1000)
     pyplot.semilogx(
         plot_x,
-        numpy.vectorize(distro.pdf)(plot_x),
+        distro.pdf(plot_x),
         label='PDF'
     )
     pyplot.semilogx(
         plot_x,
-        numpy.exp(
-            numpy.vectorize(distro.logpdf)(plot_x)
-        ),
+        numpy.exp(distro.logpdf(plot_x)),
         '--',
         label='exp(ln(PDF))'
     )
@@ -99,12 +113,12 @@ def create_check_plots():
 
     pyplot.semilogx(
         plot_x,
-        numpy.vectorize(distro.cdf)(plot_x),
+        distro.cdf(plot_x),
         label='CDF'
     )
     plot_quantiles = numpy.linspace(0, 1, 1000)
     pyplot.semilogx(
-        numpy.vectorize(distro.ppf)(plot_quantiles),
+        distro.ppf(plot_quantiles),
         plot_quantiles,
         '--',
         label='PPF$^{-1}$'
@@ -115,12 +129,12 @@ def create_check_plots():
 
     pyplot.semilogx(
         plot_x,
-        numpy.vectorize(distro.logpdf)(plot_x),
+        distro.logpdf(plot_x),
         label='log-pdf'
     )
     pyplot.semilogx(
         plot_x,
-        numpy.log(numpy.vectorize(distro.pdf)(plot_x)),
+        numpy.log(distro.pdf(plot_x)),
         '--',
         label='ln(PDF)'
     )

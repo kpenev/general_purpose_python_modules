@@ -9,10 +9,13 @@
 import csv
 from glob import glob
 import re
+from io import StringIO
 
 from ast import literal_eval
 import numpy
 from astropy.units import Unit, Quantity
+import astropy.io.ascii
+import pandas
 
 from manual_exoplanet_data import data as manual_data
 
@@ -390,9 +393,10 @@ def read_nasa_planets(csv_filename,
                 ]
             column_values = numpy.array(column_values)
 
-            if add_units and column_units is not None:
+            if add_units:
                 print(column_name + ' units: ' + repr(column_units))
-                column_values *= column_units
+                if column_units is not None:
+                    column_values *= column_units
             setattr(
                 result,
                 column_name,
@@ -715,7 +719,7 @@ def parse_hartman2016_stellar_params(filename):
     return result
 
 def read_cds_pipe_table(filename):
-    """Read a `|` separated table downloaded from CDS."""
+    """Read a `|` separated table downloaded from CDS to numpy array."""
 
     def filtered_lines():
         """Return only the lines that should be processed by genfromtxt."""
@@ -735,7 +739,20 @@ def read_cds_pipe_table(filename):
                             delimiter='|',
                             names=True,
                             deletechars='',
-                            replace_space=' ')
+                            replace_space=' ',
+                            encoding=None)
+
+def read_pipe_table_to_pandas(filename):
+    """Read a `|` separated table downloaded from CDS to pandas DataFrame."""
+
+    astropy_data = astropy.io.ascii.read(filename)
+    data_stream = StringIO()
+    astropy_data[2:].write(data_stream, format='ascii.basic', delimiter='|')
+    data_stream.seek(0)
+    return pandas.read_csv(data_stream,
+                           comment='#',
+                           sep='|',
+                           skipinitialspace=True)
 
 if __name__ == '__main__':
     stellar_params = parse_hartman2016_stellar_params(

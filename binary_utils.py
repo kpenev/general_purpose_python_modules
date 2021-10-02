@@ -2,7 +2,7 @@
 
 import numpy
 
-import astropy
+from astropy import constants
 
 def calculate_secondary_mass(primary_mass,
                              orbital_period,
@@ -36,7 +36,7 @@ def calculate_secondary_mass(primary_mass,
             /
             #False positive
             #pylint: disable=no-member
-            (2.0 * numpy.pi * astropy.constants.G)
+            (2.0 * numpy.pi * constants.G)
             #pylint: enable=no-member
             *
             (1.0 - eccentricity**2)**1.5
@@ -62,3 +62,39 @@ def calculate_secondary_mass(primary_mass,
             mass_ratio = candidate_mass_ratio.real
     assert mass_ratio is not None
     return mass_ratio * primary_mass
+
+def rv_semi_amplitude_scale(primary_mass,
+                            secondary_mass,
+                            orbital_period):
+    """
+    Calculate the radial velocity semi-amplitude of a circular edge-on orbit.
+
+    Args:
+        primary_mass:    The mass of the primary star in the binary. Must
+            include units.
+
+        secondary_mass:    The mass of the secondary star in the binary. Must
+            include units.
+
+        orbital_period:    The orbital period of the binary. Must include units.
+
+    Returns:
+        The radial velocity semi-amplitude of a circular edge-on orbit with the
+        given parameters.
+    """
+
+    return (
+        secondary_mass
+        *
+        (
+            2.0 * numpy.pi * constants.G
+            /
+            (
+                orbital_period
+                *
+                (primary_mass + secondary_mass)**2
+            )
+        )**(1.0/3.0)
+    )
+
+

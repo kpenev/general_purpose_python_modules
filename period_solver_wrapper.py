@@ -118,18 +118,26 @@ class PeriodSolverWrapper:
                            'Mprimary',
                            self.system.primary_mass)
 
-        return self._create_star(
-            mprimary,
-            self.system.feh,
-            self.interpolator['primary'],
-            self.configuration['dissipation']['primary'],
-            wind_strength=self.configuration['primary_wind_strength'],
-            wind_saturation_frequency=(
-                self.configuration['primary_wind_saturation']
-            ),
-            diff_rot_coupling_timescale=(
-                self.configuration['primary_core_envelope_coupling_timescale']
+        if self.primary_star:
+            return self._create_star(
+                mprimary,
+                self.system.feh,
+                self.interpolator['primary'],
+                self.configuration['dissipation']['primary'],
+                wind_strength=self.configuration['primary_wind_strength'],
+                wind_saturation_frequency=(
+                    self.configuration['primary_wind_saturation']
+                ),
+                diff_rot_coupling_timescale=(
+                    self.configuration['primary_core_envelope_coupling_timescale']
+                )
             )
+        return self._create_planet(
+            mprimary,
+            getattr(self.system,
+                    'Rprimary',
+                    self.system.primary_radius),
+            self.configuration['dissipation']['primary']
         )
 
 
@@ -402,6 +410,7 @@ class PeriodSolverWrapper:
                  secondary_wind_saturation,
                  secondary_core_envelope_coupling_timescale,
                  secondary_disk_period=None,
+                 primary_star=True,
                  secondary_star=False,
                  orbital_period_tolerance=1e-6,
                  period_search_factor=2.0,
@@ -462,6 +471,8 @@ class PeriodSolverWrapper:
             secondary_disk_period:    The period to which the surface spin of
                 the secondary is locked before the binary forms. If None, the
                 primary disk period is used.
+
+            primary_star:    True iff the primary object is a star.
 
             secondary_star:    True iff the secondary object is a star.
 
@@ -533,6 +544,7 @@ class PeriodSolverWrapper:
         self.porb_initial = None
         self.psurf = None
         self.secondary_star = secondary_star
+        self.primary_star = primary_star
 
         if 'precision' not in extra_evolve_args:
             extra_evolve_args['precision'] = 1e-6

@@ -1,8 +1,12 @@
 """A collection of functions useful when modeling binaries."""
 
+import logging
+
 import numpy
 
 from astropy import constants
+
+_logger = logging.getLogger(__name__)
 
 def calculate_secondary_mass(primary_mass,
                              orbital_period,
@@ -60,6 +64,17 @@ def calculate_secondary_mass(primary_mass,
         ):
             assert mass_ratio is None
             mass_ratio = candidate_mass_ratio.real
+    if mass_ratio is None:
+        _logger.critical(
+            'No valid binary mass ratio exists found for binary with M1 = %s'
+            'Porb = %s, Krv = %s, e = %s, i = %s. Solutions: %s',
+            repr(primary_mass),
+            repr(orbital_period),
+            repr(rv_semi_amplitude),
+            repr(eccentricity),
+            repr(inclination),
+            repr(solutions)
+        )
     assert mass_ratio is not None
     return mass_ratio * primary_mass
 

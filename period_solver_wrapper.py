@@ -596,12 +596,29 @@ class PeriodSolverWrapper:
             **self._get_combined_evolve_args(evolve_kwargs)
         )
         final_state = binary.final_state()
+        logging.getLogger(__name__).debug(
+            'Initial angmom getter final state: %s, ',
+            repr(final_state)
+        )
+
+        result = final_state.envelope_angmom, final_state.core_angmom
+
+        core_inertia = secondary.core_inertia(final_state.age)
+        logging.getLogger(__name__).debug(
+            'Initial secondary angular momenta: %s -> w = %s, %s -> w = %s '
+            '(secondary core fomation  age: %s)',
+            repr(result[0]),
+            repr(result[0] / secondary.envelope_inertia(final_state.age)),
+            repr(result[1]),
+            repr(numpy.nan if core_inertia == 0 else result[1] / core_inertia),
+            repr(secondary.core_formation_age())
+        )
 
         secondary.delete()
         mock_companion.delete()
         binary.delete()
 
-        return final_state.envelope_angmom, final_state.core_angmom
+        return result
 
 
     def eccentricity_difference(self,

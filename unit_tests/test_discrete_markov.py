@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+
+"""Test suite for discrete markov procesess."""
+
+import unittest
+
+import numpy
+
+from discrete_markov import DiscreteMarkov
+
+class TestDiscreteMarkov(unittest.TestCase):
+    """Unit test for DiscreteMarkov processes."""
+
+    @staticmethod
+    def _get_equivalent_order1_process(probabilities_1d,
+                                       process_order,
+                                       samples_size):
+        """Create higher order process identical to order 1 process."""
+
+        num_states = probabilities_1d.shape[-1]
+        probabilities = numpy.empty((num_states -1,)
+                                    +
+                                    process_order * (num_states,))
+        probabilities[:] = numpy.expand_dims(
+            probabilities_1d,
+            axis=tuple(range(1, process_order))
+        )
+        return DiscreteMarkov(transition_probabilities=probabilities,
+                              samples_size=samples_size)
+
+
+    def _check_fixed_order1(self, num_states, num_samples, process_order=1):
+        """
+        Check that order 1 process defined to hold a fixed value does so.
+
+        Args:
+            num_states(int):    The number of possible states the Markov process
+                can access.
+
+            num_samples(int):    How long of a chain to test.
+
+            process_order(int):    The process is defined to have this order but
+                behave as a first order Markov process.
+
+        Returns:
+            None
+        """
+
+        process = self._get_equivalent_order1_process(
+            probabilities_1d=numpy.diag(
+                numpy.ones(num_states)
+            )[:num_states - 1],
+            process_order=process_order,
+            samples_size=num_samples
+        )
+        for fixed_state in range(num_states):
+            chain = process.extend_chain(num_samples - 1,
+                                         numpy.full(process_order, fixed_state),
+                                         reset=True)
+            self.assertTrue(numpy.unique(chain) == fixed_state)
+
+    def _check_converging_order1(self,
+                                 num_states,
+                                 converge_state,
+                                 num_samples,
+                                 process_order=1):
+        """
+        Check order 1 process that gets to fixed value after first step.
+
+        Args:
+            num_states:   See _check_fixed_order1()
+
+            converge_state(int):    The state to jump to and hold.
+
+            num_states:    See _check_fixed_order1()
+
+            process_order:    See _check_fixed_order1()
+
+        Returns:
+            None
+        """
+
+        probabilities = numpy.zeros((num_states-1, num_states))
+        if converge_state < num_states - 1:
+            probabilities[converge_state] = 1.0
+
+        process = self._get_equivalent_order1_process(
+            probabilities_1d=probabilities,
+            samples_size=num_samples,
+            process_order=process_order
+        )
+
+        for initial_state in range(num_states):
+            chain = process.extend_chain(
+                num_samples - process_order,
+                numpy.full(process_order, initial_state),
+                reset=True
+            )
+            self.assertEqual(chain[process_order - 1], initial_state)
+            self.assertTrue(numpy.unique(chain[process_order:])
+                            ==
+                            converge_state)
+
+
+    def _check_alternating_order1(self,
+                                  *,
+                                  num_states,
+                                  state1,
+                                  state2,
+                                  num_samples,
+                                  process_order=1):
+        """Check order 1 process s.t. state1 -> state2, all others -> state1."""
+
+        probabilities = numpy.zeros((num_states, num_states))
+        probabilities[state1] = 1.0
+        probabilities[state1, state1] = 0.0
+        probabilities[state2, state1] = 1.0
+
+        process = self._get_equivalent_order1_process(
+            probabilities_1d=probabilities[:num_states-1],
+            samples_size=num_samples,
+            process_order=process_order
+        )
+
+        for initial_state in range(num_states):
+            chain = process.extend_chain(
+                num_samples - 1,
+                numpy.full(process_order, initial_state),
+                reset=True
+            )
+
+            self.assertEqual(chain[0], initial_state)
+
+            self.assertTrue(numpy.unique(chain[process_order::2])
+                            ==
+                            (state2 if initial_state == state1 else state1))
+            self.assertTrue(numpy.unique(chain[process_order + 1::2])
+                            ==
+                            (state1 if initial_state == state1 else state2))
+
+
+    def _check_cycling_ordern(self, order, num_states, num_samples):
+        """
+        Check order N process staying on a state N times then moving to next.
+
+        Args:
+            order(int):    The order of the process, also the number of times it
+                should stay on a value.
+
+            num_states(int):    The number of states the chain can visit.
+
+            num_samples(int):    How many samples of the chain to generate for
+                testing.
+
+        Returns:
+            None
+        """
+
+        probabilities = numpy.empty((order + 1) * (num_states,))
+        last_match_prob = numpy.ones((order + 1) * (num_states,))
+        for i in range(1, order):
+            last_match_prob *= numpy.expand_dims(
+                numpy.diag(numpy.ones(num_states)),
+                axis=tuple(range(i)) + tuple(range(i+2, order + 1))
+            )
+
+        shift_prob = numpy.expand_dims(
+            numpy.diag(numpy.ones(num_states - 1), k=-1),
+            axis=tuple(range(1, order))
+        )
+        shift_prob[(0,) + (order - 1) * (slice(None),) + (num_states -1,)] = 1.0
+
+        stay_prob = numpy.expand_dims(
+            numpy.diag(numpy.ones(num_states), k=0),
+            axis=tuple(range(1, order))
+        )
+
+        probabilities = (
+            shift_prob
+            *
+            last_match_prob
+            +
+            stay_prob
+            *
+            (1.0 - last_match_prob)
+        )
+        process = DiscreteMarkov(transition_probabilities=probabilities[:-1],
+                                 samples_size=num_samples)
+        num_shifts = int(numpy.ceil(num_samples / order))
+        num_samples = num_shifts * order
+
+        for initial_state in range(num_states):
+            expected = numpy.expand_dims(
+                numpy.arange(initial_state, initial_state + num_shifts)
+                %
+                num_states,
+                axis=1
+            )
+
+            chain = process.extend_chain(
+                num_samples - order,
+                numpy.full(order, initial_state),
+                reset=True
+            )
+
+            self.assertTrue(
+                (
+                    chain.reshape(num_shifts, order)
+                    ==
+                    expected
+                ).all()
+            )
+
+
+    def dont_test_fixed_order1(self):
+        """Test order 1 process defined to hold a fixed value."""
+
+        for process_order in range(1, 5):
+#            self._check_fixed_order1(1, 1000, process_order)
+            self._check_fixed_order1(2, 1000, process_order)
+            self._check_fixed_order1(6, 1000, process_order)
+
+
+    def dont_test_converging_order1(self):
+        """Test order 1 process set to immediately jump and hold a value."""
+
+        for process_order in range(1, 5):
+            for num_states in [1, 2, 6]:
+                for converge_state in range(num_states):
+                    self._check_converging_order1(num_states,
+                                                  converge_state,
+                                                  1000,
+                                                  process_order=process_order)
+
+
+    def dont_test_alternating_order1(self):
+        """Test order 1 process s.t. state1 -> state2, all others -> state1."""
+
+        for process_order in range(1, 3):
+            for num_states in [1, 2, 6]:
+                for state1 in range(num_states):
+                    for state2 in range(num_states):
+                        self._check_alternating_order1(
+                            num_states=num_states,
+                            state1=state1,
+                            state2=state2,
+                            num_samples=1000,
+                            process_order=process_order
+                        )
+
+
+    def test_cycling_ordern(self):
+        """
+        Test order N process staying on a state N times then moving to next.
+        """
+
+        self._check_cycling_ordern(3, 7, 1000)
+
+
+if __name__ == '__main__':
+    unittest.main()

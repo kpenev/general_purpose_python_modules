@@ -17,14 +17,11 @@ class TestDiscreteMarkov(unittest.TestCase):
                                        samples_size):
         """Create higher order process identical to order 1 process."""
 
-        num_states = probabilities_1d.shape[-1]
-        probabilities = numpy.empty((num_states -1,)
+        num_states = probabilities_1d.shape[0]
+        probabilities = numpy.empty(process_order * (num_states,)
                                     +
-                                    process_order * (num_states,))
-        probabilities[:] = numpy.expand_dims(
-            probabilities_1d,
-            axis=tuple(range(1, process_order))
-        )
+                                    (num_states -1,))
+        probabilities[..., :, :] = probabilities_1d
         return DiscreteMarkov(transition_probabilities=probabilities,
                               samples_size=samples_size)
 
@@ -49,7 +46,7 @@ class TestDiscreteMarkov(unittest.TestCase):
         process = self._get_equivalent_order1_process(
             probabilities_1d=numpy.diag(
                 numpy.ones(num_states)
-            )[:num_states - 1],
+            )[:, :num_states - 1],
             process_order=process_order,
             samples_size=num_samples
         )
@@ -80,9 +77,9 @@ class TestDiscreteMarkov(unittest.TestCase):
             None
         """
 
-        probabilities = numpy.zeros((num_states-1, num_states))
+        probabilities = numpy.zeros((num_states, num_states - 1))
         if converge_state < num_states - 1:
-            probabilities[converge_state] = 1.0
+            probabilities[..., converge_state] = 1.0
 
         process = self._get_equivalent_order1_process(
             probabilities_1d=probabilities,
@@ -112,12 +109,12 @@ class TestDiscreteMarkov(unittest.TestCase):
         """Check order 1 process s.t. state1 -> state2, all others -> state1."""
 
         probabilities = numpy.zeros((num_states, num_states))
-        probabilities[state1] = 1.0
+        probabilities[:, state1] = 1.0
         probabilities[state1, state1] = 0.0
-        probabilities[state2, state1] = 1.0
+        probabilities[state1, state2] = 1.0
 
         process = self._get_equivalent_order1_process(
-            probabilities_1d=probabilities[:num_states-1],
+            probabilities_1d=probabilities[..., :num_states-1],
             samples_size=num_samples,
             process_order=process_order
         )
@@ -158,21 +155,21 @@ class TestDiscreteMarkov(unittest.TestCase):
 
         probabilities = numpy.empty((order + 1) * (num_states,))
         last_match_prob = numpy.ones((order + 1) * (num_states,))
-        for i in range(1, order):
+        for i in range(0, order - 1):
             last_match_prob *= numpy.expand_dims(
                 numpy.diag(numpy.ones(num_states)),
                 axis=tuple(range(i)) + tuple(range(i+2, order + 1))
             )
 
         shift_prob = numpy.expand_dims(
-            numpy.diag(numpy.ones(num_states - 1), k=-1),
-            axis=tuple(range(1, order))
+            numpy.diag(numpy.ones(num_states - 1), k=1),
+            axis=tuple(range(0, order - 1))
         )
-        shift_prob[(0,) + (order - 1) * (slice(None),) + (num_states -1,)] = 1.0
+        shift_prob[..., num_states - 1, 0] = 1.0
 
         stay_prob = numpy.expand_dims(
             numpy.diag(numpy.ones(num_states), k=0),
-            axis=tuple(range(1, order))
+            axis=tuple(range(0, order - 1))
         )
 
         probabilities = (
@@ -184,8 +181,10 @@ class TestDiscreteMarkov(unittest.TestCase):
             *
             (1.0 - last_match_prob)
         )
-        process = DiscreteMarkov(transition_probabilities=probabilities[:-1],
-                                 samples_size=num_samples)
+        process = DiscreteMarkov(
+            transition_probabilities=probabilities[..., :-1],
+            samples_size=num_samples
+        )
         num_shifts = int(numpy.ceil(num_samples / order))
         num_samples = num_shifts * order
 
@@ -212,16 +211,16 @@ class TestDiscreteMarkov(unittest.TestCase):
             )
 
 
-    def dont_test_fixed_order1(self):
+    def test_fixed_order1(self):
         """Test order 1 process defined to hold a fixed value."""
 
         for process_order in range(1, 5):
-#            self._check_fixed_order1(1, 1000, process_order)
+            self._check_fixed_order1(1, 1000, process_order)
             self._check_fixed_order1(2, 1000, process_order)
             self._check_fixed_order1(6, 1000, process_order)
 
 
-    def dont_test_converging_order1(self):
+    def test_converging_order1(self):
         """Test order 1 process set to immediately jump and hold a value."""
 
         for process_order in range(1, 5):
@@ -233,7 +232,7 @@ class TestDiscreteMarkov(unittest.TestCase):
                                                   process_order=process_order)
 
 
-    def dont_test_alternating_order1(self):
+    def test_alternating_order1(self):
         """Test order 1 process s.t. state1 -> state2, all others -> state1."""
 
         for process_order in range(1, 3):

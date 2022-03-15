@@ -15,12 +15,13 @@ class DiscreteMarkov:
 
         Args:
             transition_probabilities(array):    The conditional probabilities
-                to transition to each of the possible states given the last N
-                states of the chain. The first index is the new state, the
-                indices after are ordered in the same order as the states in the
-                chain (e.g. for 2-nd order markov index 0 is the state the chain
-                will transition to, index 1 is the state before last in the
-                chain, and index 2 is the last state in the chain).
+                to transition to each of the possible states except the last
+                one, given the last N states of the chain. The last index is
+                the new state, the indices before are ordered in the same order
+                as the states in the chain (e.g. for 2-nd order markov index 2
+                is the state the chain will transition to, index 0 is the state
+                before last in the chain, and index 1 is the last state in the
+                chain).
 
             initial_state(array or None):    If not None, the initial state of
                 the chain. Should contain exactly a number of entries equal to
@@ -36,24 +37,26 @@ class DiscreteMarkov:
         """
 
         self._order = len(transition_probabilities.shape) - 1
-        self._num_states = transition_probabilities.shape[-1]
+        self._num_states = transition_probabilities.shape[0]
         assert transition_probabilities.shape == (
-            (self._num_states - 1,)
-            +
             self._order * (self._num_states,)
+            +
+            (self._num_states - 1,)
         )
 
-        total_prob = numpy.sum(transition_probabilities, axis=0)
+        total_prob = numpy.sum(transition_probabilities, axis=self._order)
         assert total_prob.min() >= 0.0
         assert total_prob.max() <= 1.0
 
         self._transition_probabilities = numpy.empty(
             (self._order + 1) * (self._num_states,),
         )
-        self._transition_probabilities[:self._num_states -1] = (
+        self._transition_probabilities[..., :self._num_states -1] = (
             transition_probabilities
         )
-        self._transition_probabilities[self._num_states - 1] = 1.0 - total_prob
+        self._transition_probabilities[..., self._num_states - 1] = (1.0
+                                                                     -
+                                                                     total_prob)
 
         self._samples = numpy.empty(samples_size, dtype=int)
         self._num_samples = 0
@@ -79,10 +82,9 @@ class DiscreteMarkov:
         """Draw a single sample (not adding to chain) given tail of chain."""
 
         probabilities = self._transition_probabilities[
-            (slice(None),) + tuple(chain_tail[-self._order:])
+            tuple(chain_tail[-self._order:]) + (slice(None),)
         ]
 
-        probabilities=probabilities.flatten()
         return numpy.random.choice(numpy.arange(self._num_states),
                                    p=probabilities)
 

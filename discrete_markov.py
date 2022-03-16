@@ -7,9 +7,23 @@ class DiscreteMarkov:
 
 
     def __init__(self,
-                 transition_probabilities,
+                 transition_probabilities=None,
                  initial_state=None,
                  samples_size=1000000):
+        """Create the Markov process."""
+
+        if transition_probabilities is not None:
+            self.set_probabilities(transition_probabilities)
+        else:
+            self.transition_probabilities = None
+
+        self._samples = numpy.empty(samples_size, dtype=int)
+        self._num_samples = 0
+        if initial_state is not None:
+            self.set_initial_state(initial_state)
+
+
+    def set_probabilities(self, transition_probabilities):
         """
         Set the transition probabilities (order + 1) rank tensor.
 
@@ -48,20 +62,15 @@ class DiscreteMarkov:
         assert total_prob.min() >= 0.0
         assert total_prob.max() <= 1.0
 
-        self._transition_probabilities = numpy.empty(
+        self.transition_probabilities = numpy.empty(
             (self._order + 1) * (self._num_states,),
         )
-        self._transition_probabilities[..., :self._num_states -1] = (
+        self.transition_probabilities[..., :self._num_states -1] = (
             transition_probabilities
         )
-        self._transition_probabilities[..., self._num_states - 1] = (1.0
+        self.transition_probabilities[..., self._num_states - 1] = (1.0
                                                                      -
                                                                      total_prob)
-
-        self._samples = numpy.empty(samples_size, dtype=int)
-        self._num_samples = 0
-        if initial_state is not None:
-            self.set_initial_state(initial_state)
 
 
     def set_initial_state(self, initial_state, reset=False):
@@ -81,7 +90,7 @@ class DiscreteMarkov:
     def draw_sample(self, chain_tail):
         """Draw a single sample (not adding to chain) given tail of chain."""
 
-        probabilities = self._transition_probabilities[
+        probabilities = self.transition_probabilities[
             tuple(chain_tail[-self._order:]) + (slice(None),)
         ]
 
@@ -104,7 +113,7 @@ class DiscreteMarkov:
         if self._samples.size < self._num_samples + size:
             self._samples.resize(self._num_samples + size)
 
-        for i in range(size):
+        for _ in range(size):
             self._samples[self._num_samples] = self.draw_sample(
                 self._samples[self._num_samples - self._order
                               :
@@ -113,3 +122,48 @@ class DiscreteMarkov:
             self._num_samples += 1
 
         return self._samples[:self._num_samples]
+
+    def fit(self, chain, num_states, order, return_max_loglikelihood=False):
+        """
+        Use maximum likelihood estimates of the probabilities given a chain.
+
+        If not all transitions are represented in the input chain, some of the
+        transition probabilities will be NaN.
+
+        Args:
+            chain(array):    The chain of discrete states that is assumed to be
+                the result of a Markov process. States are labeled by integers
+                stating at zero.
+
+            num_states(int):    The number of states the chain can access (in
+                case not all states are represented in the input chain.
+
+            order(int):    The order of the markov process to fit.
+
+            return_max_loglikelihood(bool):    Should the maximum log-likelihood
+                be calculated and returned?
+
+        Returns:
+            None
+        """
+
+        assert len(chain.shape) == 1
+        num_transitions = numpy.zeros((order + 1) * (num_states,), dtype=float)
+        for i in range(order, chain.size):
+            num_transitions[tuple(chain[i - order : i + 1])] += 1
+
+        with numpy.errstate(divide='ignore', invalid='ignore'):
+            self.transition_probabilities = num_transitions / numpy.expand_dims(
+                num_transitions.sum(axis=-1),
+                axis=order
+            )
+
+        if return_max_loglikelihood:
+            include = num_transitions > 0
+            return (
+                num_transitions[include]
+                *
+                numpy.log(self.transition_probabilities[include])
+            ).sum()
+
+        return None

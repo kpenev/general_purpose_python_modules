@@ -211,6 +211,81 @@ class TestDiscreteMarkov(unittest.TestCase):
             )
 
 
+    #No reasonable way to simplify
+    #pylint: disable=too-many-locals
+    def _check_fit_probabilities_deterministic(self, order, nstates, ntests):
+        """
+        Test fitting random transition matrices contaning only 0 and 1.
+
+        Args:
+            order(int):    The order of the markov process to test.
+
+            nstates(int):    How many states should the chain iterate over.
+
+            ntestst(int):    How many random tests to run.
+
+        Returns:
+            None
+        """
+
+
+        nsamples = nstates * order * 10
+        for progress in range(ntests):
+            print('Progress: %d/%d (%d%%)' % (progress,
+                                              ntests,
+                                              int(100 * progress/ntests)),
+                  end='\r')
+            true_probabilities = numpy.zeros((order + 1) * (nstates,))
+
+            all_from_states = numpy.dstack(
+                numpy.mgrid[
+                    order * (slice(0, nstates),)
+                ].reshape(
+                    order,
+                    nstates**order
+                )
+            )[0]
+            for from_states in all_from_states:
+                true_probabilities[
+                    tuple(from_states)
+                    +
+                    (numpy.random.choice(numpy.arange(nstates)),)
+                ] = 1.0
+
+            true_process = DiscreteMarkov(true_probabilities[..., :-1],
+                                          samples_size=nsamples)
+            fit_process = DiscreteMarkov(samples_size=0)
+
+            fit_probabilities = numpy.full(true_probabilities.shape, numpy.nan)
+            for initial_state in all_from_states:
+                chain = true_process.extend_chain(
+                    nsamples,
+                    initial_state=initial_state,
+                    reset=True
+                )
+                fit_process.fit(chain, nstates, order)
+                compare = numpy.logical_and(
+                    numpy.isfinite(fit_probabilities),
+                    numpy.isfinite(fit_process.transition_probabilities)
+                )
+                replace = numpy.logical_and(
+                    numpy.logical_not(numpy.isfinite(fit_probabilities)),
+                    numpy.isfinite(fit_process.transition_probabilities)
+                )
+                self.assertTrue(
+                    (
+                        fit_probabilities[compare]
+                        ==
+                        fit_process.transition_probabilities[compare]
+                    ).all()
+                )
+                fit_probabilities[replace] = (
+                    fit_process.transition_probabilities[replace]
+                )
+            self.assertTrue((true_probabilities == fit_probabilities).all())
+    #pylint: enable=too-many-locals
+
+
     def test_fixed_order1(self):
         """Test order 1 process defined to hold a fixed value."""
 
@@ -254,6 +329,29 @@ class TestDiscreteMarkov(unittest.TestCase):
         """
 
         self._check_cycling_ordern(3, 7, 1000)
+
+
+    def test_fit_probabilities_deterministic_order1(self):
+        """Test fitting random transition matrices contaning only 0 and 1."""
+
+        self._check_fit_probabilities_deterministic(1, 1, 3)
+        self._check_fit_probabilities_deterministic(1, 2, 100)
+        self._check_fit_probabilities_deterministic(1, 7, 1000)
+
+
+    def test_fit_probabilities_deterministic_order2(self):
+        """Test fitting random transition matrices contaning only 0 and 1."""
+
+        self._check_fit_probabilities_deterministic(2, 1, 3)
+        self._check_fit_probabilities_deterministic(2, 2, 100)
+        self._check_fit_probabilities_deterministic(2, 6, 300)
+
+    def test_fit_probabilities_deterministic_order5(self):
+        """Test fitting random transition matrices contaning only 0 and 1."""
+
+        self._check_fit_probabilities_deterministic(2, 1, 3)
+        self._check_fit_probabilities_deterministic(2, 2, 100)
+        self._check_fit_probabilities_deterministic(2, 4, 1000)
 
 
 if __name__ == '__main__':

@@ -1,7 +1,6 @@
 """Define class for combining unrelated MCMC constraints of a parameter."""
 
 import numpy
-from KDEpy import NaiveKDE as KDE
 
 class CombinedMCMCConstraint:
     """

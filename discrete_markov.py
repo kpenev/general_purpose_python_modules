@@ -147,6 +147,9 @@ class DiscreteMarkov:
             None
         """
 
+        self._num_states = num_states
+        self._order = order
+
         assert len(chain.shape) == 1
         num_transitions = numpy.zeros((order + 1) * (num_states,), dtype=float)
         for i in range(order, chain.size):
@@ -167,3 +170,42 @@ class DiscreteMarkov:
             ).sum()
 
         return None
+
+
+    def get_equilibrium_distro(self):
+        """
+        Return the equilibrium distribution of the currently defined process.
+
+        Must haveth transition probabilities defined either by
+        set_probabilities() or by fit(), defining a regular process.
+
+        Args:
+            None
+
+        Returns:
+            array:
+                The probability of each state in the equilibrium distribution.
+        """
+
+        equilibrium_coef = numpy.empty(
+            (self._num_states + 1, self._num_states)
+        )
+        equilibrium_coef[:self._num_states] = (
+            self.transition_probabilities.T
+            -
+            numpy.diag(numpy.ones(self._num_states))
+        )
+        equilibrium_coef[self._num_states] = 1.0
+
+        equilibrium_rhs = numpy.zeros(self._num_states + 1)
+        equilibrium_rhs[self._num_states] = 1.0
+
+        distro, residuals, rank, singular_vals = numpy.linalg.lstsq(
+            equilibrium_coef,
+            equilibrium_rhs,
+            rcond=None
+        )
+
+        assert residuals < 1e-16
+
+        return distro

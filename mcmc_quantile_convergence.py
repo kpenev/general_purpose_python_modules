@@ -6,13 +6,17 @@ import numpy
 
 from discrete_markov import DiscreteMarkov
 
-def get_approximate_markov(binary_chain):
+def get_approximate_markov(chain, num_states=None):
     """
-    Return O1 Markov transition prob. fit to thinned chain and thinning.
+    Return order 1 Markov process fit to thinned chain and the thinning used.
 
     Args:
-        binary_chain(array):    A chain of 0/1 values that will be thinned until
+        chain(array):    A chain of discrete values that will be thinned until
             it is well approximated by an order 1 Markov process.
+
+        num_states(int):    The number of states the process samples over  (in
+            case not all are represented in `chain`). If None, `chain.max()` is
+            used.
 
     Returns:
         float, float:
@@ -26,29 +30,60 @@ def get_approximate_markov(binary_chain):
 
 
     fitted_markov = DiscreteMarkov(samples_size=0)
+    if num_states is None:
+        num_states = chain.max() + 1
+
     thinning_statistic = 1
     thin = 0
     while thinning_statistic > 0:
         thin += 1
-        if thin >  0.1 * binary_chain.size:
+        if thin >  0.1 * chain.size:
             print('Thin %d too big. Giving up. Chain:' % thin)
-            print(repr(binary_chain))
-            return numpy.nan, numpy.nan, 0
+            print(repr(chain))
+            return None, 0
         thinning_statistic = (
-            DiscreteMarkov(samples_size=0).fit(binary_chain[::thin],
-                                               2,
+            DiscreteMarkov(samples_size=0).fit(chain[::thin],
+                                               num_states,
                                                2,
                                                True)
             -
-            fitted_markov.fit(binary_chain[::thin], 2, 1, True)
+            fitted_markov.fit(chain[::thin], num_states, 1, True)
             -
-            numpy.log(binary_chain[::thin].size)
+            num_states * (num_states - 1)**2 / 2.0
+            *
+            numpy.log(chain[::thin].size)
         )
 
-    alpha = fitted_markov.transition_probabilities[0, 1]
-    beta = fitted_markov.transition_probabilities[1, 0]
+    return fitted_markov, thin
 
-    return alpha, beta, thin
+
+def get_approximate_binary_markov(binary_chain):
+    """
+    Convenience wrapper around get_approximate_markov() for 2-state chains.
+
+    Args:
+        binary_chain(array):    A chain of 0/1 values that will be approximated
+            by an order 1 Markov process.
+
+    Returns
+        float, float:
+            The maximum likelihood estimet of the transition probabilities 0->1
+            and 1->0 respectively.
+
+        int:
+            The thinning applied to the chain to ensure first order Markov
+            process is a good approximation.
+    """
+
+    fitted_markov, thin = get_approximate_markov(binary_chain, 2)
+
+    if fitted_markov is None:
+        assert thin == 0
+        return numpy.nan, numpy.nan, 0
+
+    return (fitted_markov.transition_probabilities[0, 1],
+            fitted_markov.transition_probabilities[1, 0],
+            thin)
 
 
 def get_raftery_lewis_burnin(binary_chain, burn_in_tolerance):
@@ -56,8 +91,8 @@ def get_raftery_lewis_burnin(binary_chain, burn_in_tolerance):
 
     if numpy.unique(binary_chain).size == 1:
         return 0
-    alpha, beta, thin = get_approximate_markov(binary_chain)
-    if not (alpha + beta < 1):
+    alpha, beta, thin = get_approximate_binary_markov(binary_chain)
+    if not alpha + beta < 1:
         print('Burn in determination from %d steps: '
               'alpha = %s, beta = %s, thin = %s. Chain:'
               %
@@ -117,7 +152,7 @@ def get_raftery_lewis_quantile_variance(binary_chain):
     if numpy.unique(binary_chain).size <= 1:
         return numpy.nan, 1
 
-    alpha, beta, thin = get_approximate_markov(binary_chain)
+    alpha, beta, thin = get_approximate_binary_markov(binary_chain)
 
     if thin == 0:
         return numpy.inf, 0

@@ -161,6 +161,24 @@ class DiscreteMarkov:
                 axis=order
             )
 
+        if (
+            not numpy.isfinite(self.transition_probabilities).all()
+            and
+            order == 1
+        ):
+            print(
+                'Not all transition probabilities finite for %d order, '
+                '%d state chain:\n'
+                %
+                (order, num_states)
+                +
+                repr(chain)
+                +
+                '\nNum transitions:\n'
+                +
+                repr(num_transitions)
+            )
+
         if return_max_loglikelihood:
             include = num_transitions > 0
             return (

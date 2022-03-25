@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Test suite for discrete markov procesess."""
+"""Unit test for DiscreteMarkov processes."""
 
 import unittest
 
@@ -9,7 +9,7 @@ import numpy
 from discrete_markov import DiscreteMarkov
 
 class TestDiscreteMarkov(unittest.TestCase):
-    """Unit test for DiscreteMarkov processes."""
+    """Test suite for discrete markov procesess."""
 
     @staticmethod
     def _get_equivalent_order1_process(probabilities_1d,
@@ -346,12 +346,37 @@ class TestDiscreteMarkov(unittest.TestCase):
         self._check_fit_probabilities_deterministic(2, 2, 100)
         self._check_fit_probabilities_deterministic(2, 6, 300)
 
+
     def test_fit_probabilities_deterministic_order5(self):
         """Test fitting random transition matrices contaning only 0 and 1."""
 
         self._check_fit_probabilities_deterministic(2, 1, 3)
         self._check_fit_probabilities_deterministic(2, 2, 100)
         self._check_fit_probabilities_deterministic(2, 4, 1000)
+
+
+    def test_equilibrium_binary(self):
+        """Test calculating equilibrium distro for 2-state order1 Markov."""
+
+        for zero_to_one in [0.1, 0.3, 0.7]:
+            for one_to_zero in [0.1, 0.3] + ([] if zero_to_one == 0.7
+                                             else [0.7]):
+                process = DiscreteMarkov(
+                    transition_probabilities=numpy.array([
+                        [1.0 - zero_to_one],
+                        [one_to_zero]
+                    ]),
+                    samples_size=0
+                )
+                expected_distro = numpy.array([one_to_zero, zero_to_one])
+                expected_distro /= expected_distro.sum()
+                self.assertTrue(
+                    numpy.abs(expected_distro
+                              -
+                              process.get_equilibrium_distro()).max()
+                    <
+                    1e-14
+                )
 
 
 if __name__ == '__main__':

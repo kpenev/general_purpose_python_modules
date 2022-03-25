@@ -94,10 +94,9 @@ def get_raftery_lewis_burnin(binary_chain, burn_in_tolerance):
     alpha, beta, thin = get_approximate_binary_markov(binary_chain)
     if not alpha + beta < 1:
         print('Burn in determination from %d steps: '
-              'alpha = %s, beta = %s, thin = %s. Chain:'
+              'alpha = %s, beta = %s, thin = %s!'
               %
               (binary_chain.size, alpha, beta, thin))
-        print(repr(binary_chain))
 
     if numpy.isnan(alpha) or numpy.isnan(beta):
         return binary_chain.size
@@ -131,9 +130,9 @@ def get_iterative_raftery_lewis_burnin(binary_chain, burn_in_tolerance):
 
     return 0
 
-def get_raftery_lewis_quantile_variance(binary_chain):
+def get_raftery_lewis_quantile_stddev(binary_chain):
     """
-    Find the variance of a quantile estimate per Raftery & Lewis (1995).
+    Find the standard dev. of a quantile estimate per Raftery & Lewis (1995).
 
     Args:
         binary_chain(array):    1-D array of zeros and ones indicating whether a
@@ -141,8 +140,8 @@ def get_raftery_lewis_quantile_variance(binary_chain):
             estimated (0: below, 1: above).
     Returns:
         float:
-            The estimated variance from the entire chain (no burn-in is
-            applied).
+            The estimated standard deviation from the entire chain (no burn-in
+            is applied).
 
         int:
             The thinning needed to ensure first order Markov
@@ -164,7 +163,7 @@ def get_raftery_lewis_quantile_variance(binary_chain):
             (2.0 - alpha - beta) * alpha * beta / (alpha + beta)**3
             /
             nsamples
-        ),
+        )**0.5,
         thin
     )
 
@@ -186,8 +185,8 @@ def get_raftery_lewis_diagnostics(binary_chain, burn_in_tolerance):
 
     Returns:
         float:
-            The expected variance of the quantile estimate (average of chain
-            after burn-in)
+            The expected standard deviation of the quantile estimate (average of
+            chain after burn-in)
 
         int:
             The thinning that was applied to the chain to ensure it is well
@@ -199,11 +198,10 @@ def get_raftery_lewis_diagnostics(binary_chain, burn_in_tolerance):
     """
 
 
-    burn_in = get_iterative_raftery_lewis_burnin(binary_chain,
-                                                 burn_in_tolerance)
+    burn_in = get_raftery_lewis_burnin(binary_chain, burn_in_tolerance)
 
     return (
-        get_raftery_lewis_quantile_variance(binary_chain[burn_in:])
+        get_raftery_lewis_quantile_stddev(binary_chain[burn_in:])
         +
         (burn_in,)
     )

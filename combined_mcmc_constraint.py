@@ -1,6 +1,10 @@
 """Define class for combining unrelated MCMC constraints of a parameter."""
 
 import numpy
+from scipy.stats import rdist
+from scipy.integrate import cumtrapz as cumulative_trapezoid
+from scipy.interpolate import BPoly
+from scipy.optimize import root_scalar
 
 class CombinedMCMCConstraint:
     """
@@ -8,19 +12,41 @@ class CombinedMCMCConstraint:
 
     """
 
-    def __init__(self, grid, kernel_scale):
+
+    def _get_cdf_slice(self, pdf_slice):
+        """Return the CDF at single slice of PDF along grid."""
+
+        interp_y = numpy.empty((self._grid.size, 2))
+        interp_y[:, 0] = cumulative_trapezoid(pdf_slice,
+                                              self._grid,
+                                              initial=0)
+        interp_y[:, 1] = pdf_slice
+        interp_y /= interp_y[-1, 0]
+        return BPoly.from_derivatives(self._grid, interp_y)
+
+
+    def _find_ppf(self, cdf_func, cdf_value):
+        """Equation to solve when finding PPF."""
+
+        solution = root_scalar(lambda x: cdf_func(x) - cdf_value,
+                               bracket=(self._grid[0], self._grid[-1]))
+        assert solution.converged
+        return solution.root
+
+
+    def __init__(self, grid, kernel_width):
         """Prepare the grid on which combined PDF will be calculated."""
 
         self._grid = grid
-        self._pdf = 1.0
-        self._kernel_scale = kernel_scale
+        self._pdf = None
+        self._cdf = None
+        self.eval_kernel = rdist(c=4, scale=kernel_width).pdf
 
-    def eval_kernel(self, shifted_scaled):
-        """The kernel to apply shifted to zero and scaled to unit width."""
 
-        return numpy.maximum(0.75 * (1.0 - shifted_scaled**2), 0.0)
-
-    def add_samples(self, samples):
+    def add_samples(self,
+                    samples,
+                    prior_range=(-numpy.inf, numpy.inf),
+                    include_samples=slice(None)):
         """
         Update the PDF with the given samples.
 
@@ -28,24 +54,38 @@ class CombinedMCMCConstraint:
         index (other axes are treated as separate variables).
         """
 
-        nsamples = samples.shape[-1]
-        kernel_width = max(self._kernel_scale * nsamples**(-1.0 / 3.0),
-                           (self._grid[1:] - self._grid[:-1]).min())
-        kernel_width = 0.3
-        self._pdf *= 1.0 / kernel_width * numpy.mean(
+        eval_grid = numpy.copy(self._grid)
+        eval_grid[self._grid < prior_range[0]] = prior_range[0]
+        eval_grid[self._grid > prior_range[1]] = prior_range[1]
+        new_pdf = numpy.mean(
             self.eval_kernel(
-                -(
-                    (
-                        samples.flatten() - self._grid[:, None]
-                    ).reshape(
-                        self._grid.shape + samples.shape
-                    )
+                (
+                    samples.flatten() - eval_grid[:, None]
+                ).reshape(
+                    eval_grid.shape + samples.shape
                 )
-                /
-                kernel_width
             ),
             -1
         )
+
+        if self._pdf is None:
+            self._pdf = numpy.ones(new_pdf.shape)
+        self._pdf[:, include_samples] *= new_pdf[:, include_samples]
+        self._cdf = None
+
+        assert (self._pdf >= 0).all()
+
+
+    def ppf(self, cdf_value):
+        """Return the percent point function (inverse of CDF)."""
+
+        if self._cdf is None:
+            self._cdf = numpy.apply_along_axis(self._get_cdf_slice,
+                                               0,
+                                               self._pdf)
+        assert 0 <= cdf_value <= 1
+        return numpy.vectorize(self._find_ppf)(self._cdf, cdf_value)
+
 
     def __call__(self):
         """Return the PDF on the given grid."""

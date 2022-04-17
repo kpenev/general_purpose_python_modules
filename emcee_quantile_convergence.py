@@ -227,7 +227,6 @@ def diagnose_emcee_quantile(regular_indicator_chain=None,
 
     cdf_realizations = numpy.empty(variance_realizations)
     for realiz in range(variance_realizations):
-        print('Progress %d/%d' % (realiz, variance_realizations), end='\r')
         cdf_realizations[realiz] = sample_cdf()
 
     print('Mean(CDF realizations): ' + repr(cdf_realizations.mean()))
@@ -340,7 +339,7 @@ def find_emcee_quantiles(samples,
                   approximating the thinned number walkers below quantile chain.
 
         float:
-            The variance of the CDF estimates above.
+            The standard deviation of the CDF estimates above.
 
         int:
             The thinning applied to the chain of number walkers below `quantile`

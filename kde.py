@@ -12,7 +12,7 @@ class KDEDistribution(rv_continuous):
         rhs, lhs = numpy.meshgrid(self._samples, x)
         return lhs - rhs
 
-    def __init__(self, samples, kernel):
+    def __init__(self, samples, kernel, weights=None):
         """
         Set the "distribution" based on the given samples and kernel.
 
@@ -29,15 +29,27 @@ class KDEDistribution(rv_continuous):
 
         self._kernel = kernel
         self._samples = numpy.ravel(samples)
+        self._weights = weights
         kernel_min, kernel_max = kernel.support()
         self._support = ()
         super().__init__(a=(self._samples.min() + kernel_min),
                          b=(self._samples.max() + kernel_max))
 
+
+    def set_weights(self, weights):
+        """Define weights for the samples."""
+
+        assert(self._samples.shape == weights.shape)
+        self._weights = weights
+
+
     def _pdf(self, x):
         """Evaluate the KDE estimated probability density."""
 
-        return numpy.mean(self._kernel.pdf(self._kernel_arg(x)), axis=-1)
+        return numpy.average(self._kernel.pdf(self._kernel_arg(x)),
+                             axis=-1,
+                             weights=self._weights)
+
 
     def _cdf(self, x):
         """
@@ -51,7 +63,21 @@ class KDEDistribution(rv_continuous):
                 The values of the CDF.
         """
 
-        return numpy.mean(self._kernel.cdf(self._kernel_arg(x)), axis=-1)
+        return numpy.average(self._kernel.cdf(self._kernel_arg(x)),
+                             axis=-1,
+                             weights=self._weights)
+
+
+    def eval_sample_pdf(self, x):
+        """Evaluate the kernel around each sample at x."""
+
+        return self._kernel.pdf(self._kernel_arg(x))
+
+    def eval_sample_cdf(self, x):
+        """Evaluate the kernel around each sample at x."""
+
+        return self._kernel.cdf(self._kernel_arg(x))
+
 
 if __name__ == '__main__':
     from matplotlib import pyplot

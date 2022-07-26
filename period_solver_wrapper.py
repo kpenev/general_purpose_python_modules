@@ -491,13 +491,14 @@ class PeriodSolverWrapper:
             None
         """
 
+        porb = getattr(system, 'Porb', None)
+        if porb is None:
+            porb = system.orbital_period
         self.target_state = Structure(
             #False positive
             #pylint: disable=no-member
             age=current_age.to(units.Gyr).value,
-            Porb=getattr(system,
-                         'Porb',
-                         system.orbital_period).to(units.day).value,
+            Porb=porb.to(units.day).value,
             Pdisk=disk_period.to(units.day).value,
             planet_formation_age=disk_dissipation_age.to(units.Gyr).value
             #pylint: enable=no-member

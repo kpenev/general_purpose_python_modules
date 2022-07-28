@@ -17,7 +17,8 @@ from astropy.units import Unit, Quantity
 import astropy.io.ascii
 import pandas
 
-from manual_exoplanet_data import data as manual_data
+from general_purpose_python_modules.manual_exoplanet_data import \
+    data as manual_data
 
 hatsouth_hostname = {'HATS610-018': 'HATS-18',
                      'HATS579-017': 'HATS-9'}

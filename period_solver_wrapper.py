@@ -11,7 +11,7 @@ from orbital_evolution.star_interface import EvolvingStar
 from orbital_evolution.planet_interface import LockedPlanet
 from orbital_evolution.initial_condition_solver import InitialConditionSolver
 
-from basic_utils import Structure
+from general_purpose_python_modules.basic_utils import Structure
 
 #TODO: see if this can be simplified
 #pylint: disable=too-many-instance-attributes

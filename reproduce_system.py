@@ -13,7 +13,8 @@ from stellar_evolution.library_interface import MESAInterpolator
 from stellar_evolution.manager import StellarEvolutionManager
 from orbital_evolution.transformations import phase_lag
 
-from period_solver_wrapper import PeriodSolverWrapper
+from general_purpose_python_modules.period_solver_wrapper import \
+    PeriodSolverWrapper
 
 def add_dissipation_cmdline(parser, lgq_suffixes=('primary', 'secondary')):
     """

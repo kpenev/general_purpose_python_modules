@@ -106,10 +106,10 @@ def rice_from_error_bars(value, abs_plus_error, abs_minus_error):
 def test():
     """Avoid polluting global namespace."""
 
-    distro = rice_from_error_bars(0.11, 0.11, 0.07)
+    distro = rice_from_error_bars(0.09, 0.08, 0.08)
     plot_x = numpy.linspace(0, 0.5, 1000)
     pyplot.plot(plot_x, distro.pdf(plot_x))
-    for mark in [0.04, 0.11, 0.22]:
+    for mark in [0.09, 0.01, 0.17]:
         pyplot.axvline(x=mark)
     for mark_cdf in [norm.cdf(-1.0), 0.5, norm.cdf(1.0)]:
         pyplot.axvline(x=distro.ppf(mark_cdf), linestyle=':', color='red')

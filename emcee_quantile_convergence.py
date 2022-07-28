@@ -7,8 +7,9 @@ from functools import partial
 import numpy
 from scipy.stats import rdist
 
-from mcmc_quantile_convergence import get_approximate_markov
-from kde import KDEDistribution
+from general_purpose_python_modules.mcmc_quantile_convergence import \
+    get_approximate_markov
+from general_purpose_python_modules.kde import KDEDistribution
 
 
 def regularize_discrete_chain(input_chain):

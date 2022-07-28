@@ -2,7 +2,9 @@ import numpy
 from matplotlib import pyplot
 from corner import corner
 
-def make_corner_plot(plot_data_frame, corner_plot_fname='', **corner_kwargs):
+def make_corner_plot(plot_data_frame,
+                     corner_plot_fname='show',
+                     **corner_kwargs):
     """Create a corner plot of the given pandas DataFrame and save/display."""
 
     plot_ranges = [
@@ -15,7 +17,9 @@ def make_corner_plot(plot_data_frame, corner_plot_fname='', **corner_kwargs):
     corner(plot_data_frame,
            range=plot_ranges,
            **corner_kwargs)
-    if corner_plot_fname:
+    if corner_plot_fname == 'show':
+        pyplot.show()
+    elif corner_plot_fname:
         pyplot.savefig(corner_plot_fname)
     else:
-        pyplot.show()
+        assert corner_plot_fname is None

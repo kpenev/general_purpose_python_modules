@@ -4,7 +4,8 @@
 from matplotlib import pyplot
 import numpy
 
-from discrete_markov import DiscreteMarkov
+from general_purpose_python_modules.discrete_markov import \
+    DiscreteMarkov
 
 def get_approximate_markov(chain, num_states=None):
     """

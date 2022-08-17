@@ -4,14 +4,23 @@
 
 from glob import glob
 import os.path
+from types import SimpleNamespace
+import logging
+import pickle
 
 from scipy import optimize
 import numpy
 from astropy import units
+from configargparse import ArgumentParser, DefaultsFormatter
 
 from stellar_evolution.library_interface import MESAInterpolator
 from stellar_evolution.manager import StellarEvolutionManager
 from orbital_evolution.transformations import phase_lag
+
+from orbital_evolution.command_line_util import\
+    add_binary_config,\
+    add_evolution_config,\
+    set_up_library
 
 from general_purpose_python_modules.period_solver_wrapper import \
     PeriodSolverWrapper
@@ -133,6 +142,95 @@ def get_poet_dissipation_from_cmdline(cmdline_args,
             result[component] = None
 
     return result
+
+
+def parse_command_line():
+    """Return command line arguments configuration the system to reproduce."""
+
+    parser = ArgumentParser(
+        description=__doc__,
+        default_config_files=['system.params'],
+        formatter_class=DefaultsFormatter,
+        ignore_unknown_config_file_keys=False
+    )
+    parser.add_argument(
+        '--config', '-c',
+        is_config_file=True,
+        help='Config file to use instead of default.'
+    )
+    parser.add_argument(
+        '--create-config',
+        default=None,
+        help='Filename to create a config file where all options are set per '
+        'what is currently parsed.'
+    )
+
+    add_binary_config(parser,
+                      skip=('initial_orbital_period', 'dissipation', 'Wdisk'),
+                      require_secondary=True)
+    parser.add_argument(
+        '--disk-lock-period', '--Pdisk',
+        type=float,
+        default=7.0,
+        help='The fixed spin period of the surface of the primary until '
+        'the disk dissipates.'
+    )
+
+    add_dissipation_cmdline(parser)
+    add_evolution_config(parser)
+
+    parser.add_argument(
+        '--orbital-period', '--Porb',
+        type=float,
+        default=5.0,
+        help='The orbital period to reproduce at the final age in days.'
+    )
+    parser.add_argument(
+        '--orbital-period-tolerance', '--porb-tol',
+        type=float,
+        default=1e-6,
+        help='The tolerance to which to find the initial orbital preiod when '
+        'trying to match the final one.'
+    )
+    parser.add_argument(
+        '--period-search-factor',
+        type=float,
+        default=2.0,
+        help='The factor by which to change the initial period guess while '
+        'searching for a range surrounding the known present day orbital '
+        'period.'
+    )
+    parser.add_argument(
+        '--scaled-period-guess',
+        type=float,
+        default=1.0,
+        help='The search for initial period to bracket the observed final '
+        'period will start from this value multiplied by the final orbital '
+        'period.'
+    )
+    parser.add_argument(
+        '--logging-verbosity',
+        choices=['debug', 'info', 'warning', 'error', 'critical'],
+        default='info',
+        help='The lowest level logging messages to issue.'
+    )
+    parser.add_argument(
+        '--output-pickle', '--output', '-o',
+        default='found_evolution.pkl',
+        help='Filename to which to append a pickle of the found evolution.'
+    )
+
+    result = parser.parse_args()
+    if result.create_config:
+        print('Creating config file: ' + repr(result.create_config))
+        parser.write_config_file(result,
+                                 [result.create_config],
+                                 exit_after=True)
+    logging.basicConfig(
+        level=getattr(logging, result.logging_verbosity.upper())
+    )
+    return result
+
 
 def get_interpolator(stellar_evolution_interpolator_dir,
                      track_path):
@@ -274,7 +372,8 @@ def find_evolution(system,
 
     if secondary_is_star is None:
         secondary_is_star = check_if_secondary_is_star(system)
-    max_timestep = 1e-3 * units.Gyr
+    if 'max_time_step' not in extra_evolve_args:
+        extra_evolve_args['max_time_step'] = 1e-3
     #pylint: enable=no-member
     period_solver = PeriodSolverWrapper(
         system=system,
@@ -286,7 +385,6 @@ def find_evolution(system,
         disk_period=disk_period,
         initial_obliquity=initial_obliquity,
         disk_dissipation_age=disk_dissipation_age,
-        max_timestep=max_timestep,
         dissipation=dissipation,
         secondary_star=secondary_is_star,
         primary_wind_strength=primary_wind_strength,
@@ -334,3 +432,60 @@ def find_evolution(system,
         max_age=max_age
     )
 #pylint: enable=too-many-locals
+
+if __name__ == '__main__':
+    config = parse_command_line()
+
+    kwargs = dict(
+        system=SimpleNamespace(
+            primary_mass=config.primary_mass * units.M_sun,
+            secondary_mass=config.secondary_mass * units.M_sun,
+            feh=config.metallicity,
+            orbital_period=config.orbital_period * units.day,
+            age=config.final_age * units.Gyr
+        ),
+        interpolator=set_up_library(config),
+        dissipation=get_poet_dissipation_from_cmdline(config),
+        max_age=config.final_age * units.Gyr,
+        disk_period=config.disk_lock_period * units.day,
+        disk_dissipation_age=config.disk_dissipation_age * units.Gyr,
+        primary_core_envelope_coupling_timescale=(
+            config.primary_diff_rot_coupling_timescale * units.Gyr
+        ),
+        secondary_core_envelope_coupling_timescale=(
+            config.primary_diff_rot_coupling_timescale
+            if config.secondary_diff_rot_coupling_timescale is None else
+            config.secondary_diff_rot_coupling_timescale
+        ) * units.Gyr,
+        secondary_wind_strength=(
+            config.primary_wind_strength
+            if config.secondary_wind_strength is None else
+            config.secondary_wind_strength
+        ),
+        primary_wind_saturation=config.primary_wind_saturation_frequency,
+        secondary_wind_saturation=(
+            config.primary_wind_saturation_frequency
+            if config.secondary_wind_saturation_frequency is None else
+            config.secondary_wind_saturation_frequency
+        ),
+        required_ages=None,
+        eccentricity_expansion_fname=(
+            config.eccentricity_expansion_fname.encode('ascii')
+        ),
+        timeout=config.max_evolution_runtime
+    )
+    for param in ['initial_eccentricity',
+                  'initial_obliquity',
+                  'initial_eccentricity',
+                  'initial_obliquity',
+                  'primary_wind_strength',
+                  'orbital_period_tolerance',
+                  'period_search_factor',
+                  'scaled_period_guess',
+                  'max_time_step',
+                  'precision']:
+        kwargs[param] = getattr(config, param)
+
+    evolution = find_evolution(**kwargs)
+    with open(config.output_pickle, 'ab') as outf:
+        pickle.dump(evolution, outf)

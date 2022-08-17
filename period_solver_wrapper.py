@@ -4,14 +4,13 @@ import logging
 
 import numpy
 from astropy import units
+from types import SimpleNamespace
 
 from stellar_evolution.library_interface import MESAInterpolator
 from orbital_evolution.binary import Binary
 from orbital_evolution.star_interface import EvolvingStar
 from orbital_evolution.planet_interface import LockedPlanet
 from orbital_evolution.initial_condition_solver import InitialConditionSolver
-
-from general_purpose_python_modules.basic_utils import Structure
 
 #TODO: see if this can be simplified
 #pylint: disable=too-many-instance-attributes
@@ -346,7 +345,7 @@ class PeriodSolverWrapper:
         """Return the final state or evolution of the system matching target."""
 
         find_ic = InitialConditionSolver(
-            evolution_max_time_step=self.configuration['max_timestep'],
+            evolution_max_time_step=evolve_kwargs['max_time_step'],
             evolution_precision=evolve_kwargs.get('precision', 1e-6),
             evolution_timeout=evolve_kwargs.get('timeout', 0),
             initial_eccentricity=initial_eccentricity,
@@ -401,7 +400,6 @@ class PeriodSolverWrapper:
                  disk_period,
                  initial_obliquity,
                  disk_dissipation_age,
-                 max_timestep,
                  dissipation,
                  primary_wind_strength,
                  primary_wind_saturation,
@@ -437,9 +435,6 @@ class PeriodSolverWrapper:
 
             disk_dissipation_age:    The age at which the disk dissipates and
                 the secondary forms.
-
-            max_timestep:    The maximum timestep the evolution is allowed to
-                take.
 
             dissipation:    A dictionary containing the dissipation argument to
                 pass to :meth:`_create_star` or :meth:`_create_planet` when
@@ -494,7 +489,7 @@ class PeriodSolverWrapper:
         porb = getattr(system, 'Porb', None)
         if porb is None:
             porb = system.orbital_period
-        self.target_state = Structure(
+        self.target_state = SimpleNamespace(
             #False positive
             #pylint: disable=no-member
             age=current_age.to(units.Gyr).value,
@@ -507,7 +502,7 @@ class PeriodSolverWrapper:
             'For system:\n\t%s'
             '\nTargeting:\n\t%s',
             repr(system),
-            self.target_state.format('\n\t')
+            repr(self.target_state)
         )
 
         self.system = system
@@ -521,7 +516,6 @@ class PeriodSolverWrapper:
             #False positive
             #pylint: disable=no-member
             disk_dissipation_age=disk_dissipation_age.to(units.Gyr).value,
-            max_timestep=max_timestep.to(units.Gyr).value,
             #pylint: enable=no-member
             orbital_period_tolerance=orbital_period_tolerance,
             dissipation=dissipation,
@@ -593,7 +587,6 @@ class PeriodSolverWrapper:
 
         binary.evolve(
             final_age=self.configuration['disk_dissipation_age'],
-            max_time_step=self.configuration['max_timestep'],
             **self._get_combined_evolve_args(evolve_kwargs)
         )
         final_state = binary.final_state()
@@ -737,7 +730,6 @@ class PeriodSolverWrapper:
             #False positive
             #pylint: disable=no-member
             max_age,
-            self.configuration['max_timestep'],
             #pylint: enable=no-member
             **evolve_kwargs
         )

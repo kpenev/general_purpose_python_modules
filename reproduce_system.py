@@ -288,6 +288,7 @@ def find_evolution(system,
                    orbital_period_tolerance=1e-6,
                    period_search_factor=2.0,
                    scaled_period_guess=1.0,
+                   eccentricity_upper_limit=0.8,
                    solve=True,
                    secondary_is_star=None,
                    **extra_evolve_args):
@@ -343,6 +344,8 @@ def find_evolution(system,
 
         scaled_period_guess:    See same name argument to
             :meth:`InitialConditionSolver.__init__`
+
+        eccentricity_upper_limit:    The maximum initial eccentricity to try.
 
         solve:    If False, no attempt is made to find initial orbital period
             and/or eccentricity. Instead, the system parameters are assumed to
@@ -409,7 +412,7 @@ def find_evolution(system,
             initial_eccentricity = optimize.brentq(
                 period_solver.eccentricity_difference,
                 system.eccentricity,
-                0.5,
+                eccentricity_upper_limit,
                 xtol=1e-2,
                 rtol=1e-2,
                 args=(initial_secondary_angmom,)

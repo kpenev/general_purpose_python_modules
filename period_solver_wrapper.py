@@ -552,10 +552,18 @@ class PeriodSolverWrapper:
     def get_secondary_initial_angmom(self, **evolve_kwargs):
         """Return the angular momentum of the secondary when binary forms."""
 
-        if not self.secondary_star:
-            return (0.0, 0.0)
-
         secondary = self._create_secondary()
+
+        if not self.secondary_star:
+            return (
+                (
+                    2.0 * numpy.pi / self.configuration['secondary_disk_period']
+                    *
+                    secondary.inertia()
+                )
+                ,
+            )
+
         mock_companion = self._create_planet(1.0 * units.M_jup,
                                              1.0 * units.R_jup)
         binary = Binary(

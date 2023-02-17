@@ -479,8 +479,6 @@ if __name__ == '__main__':
     )
     for param in ['initial_eccentricity',
                   'initial_obliquity',
-                  'initial_eccentricity',
-                  'initial_obliquity',
                   'primary_wind_strength',
                   'orbital_period_tolerance',
                   'period_search_factor',

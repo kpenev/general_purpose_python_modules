@@ -12,7 +12,6 @@ class CombinedMCMCConstraint:
 
     """
 
-
     def _get_cdf_slice(self, pdf_slice):
         """Return the CDF at single slice of PDF along grid."""
 
@@ -34,6 +33,35 @@ class CombinedMCMCConstraint:
         return solution.root
 
 
+    def _apply_ignore_mask(self, pdf, ignore_past_quantile):
+        """Replace values of the PDF that must be ignored with 1.0."""
+
+        def _get_masked_pdf_slice(pdf_slice):
+            """Return the input slice of the PDF masked on the selected side."""
+
+            cdf = self._get_cdf_slice(pdf_slice)
+            critical_value = root_scalar(
+                lambda x: cdf(x) - ignore_past_quantile[0],
+                bracket=(self._grid[0], self._grid[-1]),
+                fprime=cdf.derivative(),
+            ).root
+            index_below = numpy.nonzero(self._grid <= critical_value)[0].max()
+            grid_below, grid_above = self._grid[index_below: index_below + 2]
+            pdf_below, pdf_above = pdf_slice[index_below: index_below + 2]
+            assert grid_below <= critical_value
+            assert grid_above > critical_value
+            fraction = (critical_value - grid_below) / (grid_above - grid_below)
+            replace_value = pdf_below + fraction * (pdf_above - pdf_below)
+            if ignore_past_quantile[1] > 0:
+                pdf_slice[index_below + 1:] = replace_value
+            else:
+                assert ignore_past_quantile[1] < 0
+                pdf_slice[:index_below + 1] = replace_value
+            return pdf_slice
+
+        return numpy.apply_along_axis(_get_masked_pdf_slice, 0, pdf)
+
+
     def __init__(self, grid, kernel_width):
         """Prepare the grid on which combined PDF will be calculated."""
 
@@ -46,27 +74,60 @@ class CombinedMCMCConstraint:
     def add_samples(self,
                     samples,
                     prior_range=(-numpy.inf, numpy.inf),
-                    include_samples=slice(None)):
+                    include_samples=slice(None),
+                    ignore_past_quantile=None):
         """
         Update the PDF with the given samples.
 
-        If samples is more than 1-D the last axis should iterate over sample
-        index (other axes are treated as separate variables).
+        Args:
+            samples(array):    The samples to add. if samples is more than 1-D
+                the last axis should iterate over sample index (other axes are
+                treated as separate variables).
+
+            prior_range(2-tuple):    Limit the range over which the distribution
+                is evaluated to the given upper and lower limits. For grid
+                values outside of this range, the value of the PDF at the
+                specified limit is used.
+
+            include_samples(slice):    Slice to apply to the first index of
+                samples limiting the range of the additional variable over which
+                the constraint is used.
+
+            ignore_past_quantile(2-tuple):    Allows ignoring part of the
+                distribution when the constraint is being updated. The first
+                entry specifies a quartile beyond which the distribution should
+                be ignored and the second entry specifies a direction. For
+                example, ``ignore_past_quantile = (0.5, 1)`` results in using
+                a distribution with PDF equal to the new distribution up to the
+                median and a constant value equal to the new PDF at the median
+                past that.
         """
 
         eval_grid = numpy.copy(self._grid)
         eval_grid[self._grid < prior_range[0]] = prior_range[0]
         eval_grid[self._grid > prior_range[1]] = prior_range[1]
-        new_pdf = numpy.mean(
-            self.eval_kernel(
-                (
-                    samples.flatten() - eval_grid[:, None]
-                ).reshape(
-                    eval_grid.shape + samples.shape
-                )
-            ),
-            -1
-        )
+
+        new_pdf = numpy.zeros(shape=(eval_grid.shape + samples.shape)[:-1],
+                              dtype=float)
+        split = max(1, samples.shape[-1] // (int(samples.size / 1e5) + 1))
+        for start in range(0, samples.shape[-1], split):
+            sub_samples = samples[
+                ...,
+                start : min(start + split, samples.shape[-1])
+            ]
+            new_pdf += numpy.sum(
+                self.eval_kernel(
+                    (
+                        sub_samples.flatten() - eval_grid[:, None]
+                    ).reshape(
+                        eval_grid.shape + sub_samples.shape
+                    )
+                ),
+                -1
+            )
+        new_pdf /= samples.shape[-1]
+        if ignore_past_quantile:
+            self._apply_ignore_mask(new_pdf, ignore_past_quantile)
 
         if self._pdf is None:
             self._pdf = numpy.ones(new_pdf.shape)

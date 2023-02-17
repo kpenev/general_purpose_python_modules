@@ -3,6 +3,7 @@
 
 #from sys import float_info
 from functools import partial
+import logging
 
 import numpy
 from scipy.stats import rdist
@@ -11,6 +12,7 @@ from general_purpose_python_modules.mcmc_quantile_convergence import \
     get_approximate_markov
 from general_purpose_python_modules.kde import KDEDistribution
 
+_logger = logging.getLogger(__name__)
 
 def regularize_discrete_chain(input_chain):
     """
@@ -119,7 +121,12 @@ def get_emcee_burnin(regular_indicator_chain, burnin_tolerance):
         """Return burnin range (min, max) that brackets the true value."""
 
         burnin_min = 1
-        assert burnin_equation(burnin_min) > 0
+        burnin_equation_start = burnin_equation(burnin_min)
+        if burnin_equation_start <= 0:
+            _logger.warning('Burn-in equation for burn-in of 1 step is %s'
+                            %
+                            repr(burnin_equation_start))
+            return 0, 1
         burnin_max = 2
         while burnin_equation(burnin_max) > 0:
             burnin_min = burnin_max
@@ -137,16 +144,21 @@ def get_emcee_burnin(regular_indicator_chain, burnin_tolerance):
     if fitted_markov is None:
         return 0
 
+    try:
+        equilibrium_distro = fitted_markov.get_equilibrium_distro()
+    except ValueError:
+        _logger.error('Failed to find equilibrium distribution')
+        return 0
+
     burnin_equation = partial(eval_burnin_equation_powers,
                               fitted_markov.transition_probabilities,
-                              fitted_markov.get_equilibrium_distro())
+                              equilibrium_distro)
 
     burnin_min, burnin_max = find_burnin_bracket(burnin_equation)
 
     if burnin_max is None:
-        print('The following transition matrix fails to converge:\n'
-              +
-              repr(fitted_markov.transition_probabilities))
+        _logger.error('The following transition matrix fails to converge:\n%s',
+                      repr(fitted_markov.transition_probabilities))
         return 0
 
 

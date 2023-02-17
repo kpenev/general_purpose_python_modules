@@ -1,5 +1,7 @@
 """Define a discrete Markov process of arbitrary order."""
 
+import logging
+
 import numpy
 
 class DiscreteMarkov:
@@ -166,7 +168,7 @@ class DiscreteMarkov:
             and
             order == 1
         ):
-            print(
+            logging.getLogger(__name__).error(
                 'Not all transition probabilities finite for %d order, '
                 '%d state chain:\n'
                 %
@@ -218,11 +220,19 @@ class DiscreteMarkov:
         equilibrium_rhs = numpy.zeros(self._num_states + 1)
         equilibrium_rhs[self._num_states] = 1.0
 
-        distro, residuals, rank, singular_vals = numpy.linalg.lstsq(
-            equilibrium_coef,
-            equilibrium_rhs,
-            rcond=None
-        )
+        try:
+            distro, residuals, _, _ = numpy.linalg.lstsq(
+                equilibrium_coef,
+                equilibrium_rhs,
+                rcond=None
+            )
+        except:
+            logging.getLogger(__name__).critical(
+                'Failed to solve LSTSQ with A=\n%s\nb=%s'
+                %
+                (repr(equilibrium_coef), repr(equilibrium_rhs))
+            )
+            raise
 
         assert residuals < 1e-16
 

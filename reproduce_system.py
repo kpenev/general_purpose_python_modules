@@ -8,7 +8,8 @@ from types import SimpleNamespace
 import logging
 import pickle
 
-from scipy import optimize
+#from scipy import optimize
+import scipy
 import numpy
 from astropy import units
 from configargparse import ArgumentParser, DefaultsFormatter
@@ -22,8 +23,11 @@ from orbital_evolution.command_line_util import\
     add_evolution_config,\
     set_up_library
 
-from general_purpose_python_modules.period_solver_wrapper import \
-    PeriodSolverWrapper
+from general_purpose_python_modules.solve_for_initial_values import \
+    InitialValueFinder
+
+from general_purpose_python_modules.spin_calculation import \
+    SpinPeriod
 
 def add_dissipation_cmdline(parser, lgq_suffixes=('primary', 'secondary')):
     """
@@ -363,6 +367,64 @@ def find_evolution(system,
         for details.
     """
 
+    def errfunc(initial_conditions,
+                #targets,
+                value_finder):
+        """Returns differences for all three values."""
+
+        #porb_i =
+        #ecc_i  = initial_eccentricity
+        #obliq_i = initial_obliquity
+
+        porb_true = system.Porb
+        ecc_true  = system.eccentricity
+        obliq_true = system.obliquity #targets[2]
+
+        # Sanity check
+        if ecc_i < 0 or ecc_i >= 1:
+            #complain
+        if porb_probs:
+            #complain
+        if pbliq_pvib:
+            #complain
+        
+        #more stuff
+
+        porb_found,ecc_found,obliq_found = value_finder.try_system(initial_conditions)
+
+        if numpy.logical_or(numpy.isnan(porb_found),(numpy.isnan(ecc_found))):
+            self.logger.error('Binary system was destroyed')
+            raise ValueError
+
+        #binary.delete()
+
+        return porb_found-porb_true,ecc_found-ecc_true,obliq_found-obliq_true
+
+    def errfunc_e(other_initial_conditions,
+                  obliq_i,
+                  #targets,
+                  value_finder):
+        initial_conditions = [other_initial_conditions[0],other_initial_conditions[1],obliq_i]
+        final_conditions = errfunc(initial_conditions,value_finder)
+        return final_conditions[0],final_conditions[1]
+    
+    def errfunc_o(other_initial_conditions,
+                  ecc_i,
+                  #targets,
+                  value_finder):
+        initial_conditions = [other_initial_conditions[0],ecc_i,other_initial_conditions[1]]
+        final_conditions = errfunc(initial_conditions,value_finder)
+        return final_conditions[0],final_conditions[2]
+
+    def errfunc_p(porb_i,
+                  other_initial_conditions,
+                  #targets,
+                  value_finder):
+        """For 1D solving"""
+        initial_conditions = porb_i,other_initial_conditions[0],other_initial_conditions[1]
+
+        return errfunc(initial_conditions,value_finder)[0]
+
     #False positive
     #pylint: disable=no-member
     if disk_period is None:
@@ -378,7 +440,8 @@ def find_evolution(system,
     if 'max_time_step' not in extra_evolve_args:
         extra_evolve_args['max_time_step'] = 1e-3
     #pylint: enable=no-member
-    period_solver = PeriodSolverWrapper(
+    
+    value_finder = InitialValueFinder(
         system=system,
         interpolator=interpolator,
         #False positive
@@ -406,30 +469,54 @@ def find_evolution(system,
         scaled_period_guess=scaled_period_guess,
         **extra_evolve_args
     )
+    initial_guess = [10,0.5,3]  #TODO
+    #targets = 
     if solve:
-        initial_secondary_angmom = period_solver.get_secondary_initial_angmom()
-        if initial_eccentricity == 'solve':
-            initial_eccentricity = optimize.brentq(
-                period_solver.eccentricity_difference,
-                system.eccentricity,
-                eccentricity_upper_limit,
-                xtol=1e-2,
-                rtol=1e-2,
-                args=(initial_secondary_angmom,)
-            )
-        elif initial_obliquity == 'solve':
-            initial_obliquity = optimize.brentq(
-                period_solver.obliquity_difference,
-                0,
-                numpy.pi,
-                xtol=1e-3,
-                rtol=1e-3,
-                args=(initial_secondary_angmom,)
-            )
+        try:
+            initial_secondary_angmom = value_finder.get_secondary_initial_angmom()
+            if initial_eccentricity == 'solve':
+                initial_porb,initial_eccentricity=scipy.optimize.root(errfunc_e,
+                                                                      [initial_guess[0],initial_guess[1]],
+                                                                      method='lm',
+                                                                      options={'xtol':1e-6,
+                                                                               'ftol':1e-6,
+                                                                               'maxiter':20},
+                                                                      args=(initial_guess[2],
+                                                                            #targets,
+                                                                            value_finder)
+                )
+            elif initial_obliquity == 'solve':
+                initial_porb,initial_obliquity=scipy.optimize.root(errfunc_o,
+                                                                   [initial_guess[0],initial_guess[2]],
+                                                                   method='lm',
+                                                                   options={'xtol':1e-6,
+                                                                            'ftol':1e-6,
+                                                                            'maxiter':20},
+                                                                   args=(initial_guess[1],
+                                                                         #targets,
+                                                                         value_finder)
+                )
+            else:
+                # Just solving for period
+                initial_porb = optimize.brentq(
+                    errfunc_p,
+                    system.eccentricity,
+                    eccentricity_upper_limit,
+                    xtol=1e-2,
+                    rtol=1e-2,
+                    args=([initial_guess[1],initial_guess[2]],
+                          #targets,
+                          value_finder)
+                )
+        except:
+            self.logger.exception('Solver Crashed') #to be adapted
+            self.spin=scipy.nan
+            return scipy.nan,scipy.nan
     else:
-        period_solver.porb_initial = system.Porb
+        initial_porb = system.Porb
 
-    return period_solver.get_found_evolution(
+    return value_finder.get_found_evolution(
+        porb_initial=initial_porb,
         initial_eccentricity=initial_eccentricity,
         initial_obliquity=initial_obliquity,
         max_age=max_age

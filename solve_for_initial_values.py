@@ -8,7 +8,9 @@ from astropy import units, constants
 import time
 import logging
 
-from stellar_evolution.manager import StellarEvolutionManager
+from types import SimpleNamespace
+
+from stellar_evolution.library_interface import MESAInterpolator
 from orbital_evolution.binary import Binary
 from orbital_evolution.transformations import phase_lag
 from orbital_evolution.star_interface import EvolvingStar
@@ -331,7 +333,7 @@ class InitialValueFinder:
 
         return evolution
     
-    def try_system(self,initial_conditions):
+    def try_system(self,initial_conditions,initial_secondary_angmom):
         initial_orbital_period=initial_conditions[0]
         initial_eccentricity=initial_conditions[1]
         initial_obliquity=initial_conditions[2]

@@ -368,62 +368,63 @@ def find_evolution(system,
     """
 
     def errfunc(initial_conditions,
-                #targets,
-                value_finder):
-        """Returns differences for all three values."""
+                value_finder,
+                initial_secondary_angmom):
+        """
+        Returns differences between initial and found orbital period,
+        eccentricity, and (potentially, if implemented) obliquity, given
+        some specified initial conditions.
+        """
 
-        #porb_i =
-        #ecc_i  = initial_eccentricity
-        #obliq_i = initial_obliquity
+        porb_i = initial_conditions[0]
+        ecc_i  = initial_conditions[1]
+        obliq_i = initial_conditions[2]
 
         porb_true = system.Porb
         ecc_true  = system.eccentricity
-        obliq_true = system.obliquity #targets[2]
+        obliq_true = system.obliquity
 
         # Sanity check
         if ecc_i < 0 or ecc_i >= 1:
-            #complain
-        if porb_probs:
-            #complain
-        if pbliq_pvib:
-            #complain
-        
-        #more stuff
+            #logger.warning('Invalid Values')      TODO
+            return scipy.nan,scipy.nan,scipy.nan
+        if porb_i < 0 or porb_i > 100:
+            return scipy.nan,scipy.nan,scipy.nan  #TODO
+        if obliq_i < 0 or obliq_i >90:            #very TODO
+            return scipy.nan,scipy.nan,scipy.nan  
 
-        porb_found,ecc_found,obliq_found = value_finder.try_system(initial_conditions)
+        porb_found,ecc_found,obliq_found = value_finder.try_system(initial_conditions,initial_secondary_angmom)
 
         if numpy.logical_or(numpy.isnan(porb_found),(numpy.isnan(ecc_found))):
-            self.logger.error('Binary system was destroyed')
+            #self.logger.error('Binary system was destroyed')   TODO
             raise ValueError
-
-        #binary.delete()
 
         return porb_found-porb_true,ecc_found-ecc_true,obliq_found-obliq_true
 
     def errfunc_e(other_initial_conditions,
                   obliq_i,
-                  #targets,
-                  value_finder):
+                  value_finder,
+                  initial_secondary_angmom):
         initial_conditions = [other_initial_conditions[0],other_initial_conditions[1],obliq_i]
-        final_conditions = errfunc(initial_conditions,value_finder)
+        final_conditions = errfunc(initial_conditions,value_finder,initial_secondary_angmom)
         return final_conditions[0],final_conditions[1]
     
     def errfunc_o(other_initial_conditions,
                   ecc_i,
-                  #targets,
-                  value_finder):
+                  value_finder,
+                  initial_secondary_angmom):
         initial_conditions = [other_initial_conditions[0],ecc_i,other_initial_conditions[1]]
-        final_conditions = errfunc(initial_conditions,value_finder)
+        final_conditions = errfunc(initial_conditions,value_finder,initial_secondary_angmom)
         return final_conditions[0],final_conditions[2]
 
     def errfunc_p(porb_i,
                   other_initial_conditions,
-                  #targets,
-                  value_finder):
+                  value_finder,
+                  initial_secondary_angmom):
         """For 1D solving"""
         initial_conditions = porb_i,other_initial_conditions[0],other_initial_conditions[1]
 
-        return errfunc(initial_conditions,value_finder)[0]
+        return errfunc(initial_conditions,value_finder,initial_secondary_angmom)[0]
 
     #False positive
     #pylint: disable=no-member
@@ -470,7 +471,6 @@ def find_evolution(system,
         **extra_evolve_args
     )
     initial_guess = [10,0.5,3]  #TODO
-    #targets = 
     if solve:
         try:
             initial_secondary_angmom = value_finder.get_secondary_initial_angmom()
@@ -482,8 +482,8 @@ def find_evolution(system,
                                                                                'ftol':1e-6,
                                                                                'maxiter':20},
                                                                       args=(initial_guess[2],
-                                                                            #targets,
-                                                                            value_finder)
+                                                                            value_finder,
+                                                                            initial_secondary_angmom)
                 )
             elif initial_obliquity == 'solve':
                 initial_porb,initial_obliquity=scipy.optimize.root(errfunc_o,
@@ -493,24 +493,24 @@ def find_evolution(system,
                                                                             'ftol':1e-6,
                                                                             'maxiter':20},
                                                                    args=(initial_guess[1],
-                                                                         #targets,
-                                                                         value_finder)
+                                                                         value_finder,
+                                                                         initial_secondary_angmom)
                 )
             else:
                 # Just solving for period
-                initial_porb = optimize.brentq(
+                initial_porb = scipy.optimize.brentq(
                     errfunc_p,
                     system.eccentricity,
                     eccentricity_upper_limit,
                     xtol=1e-2,
                     rtol=1e-2,
                     args=([initial_guess[1],initial_guess[2]],
-                          #targets,
-                          value_finder)
+                          value_finder,
+                          initial_secondary_angmom)
                 )
         except:
-            self.logger.exception('Solver Crashed') #to be adapted
-            self.spin=scipy.nan
+            #self.logger.exception('Solver Crashed') #TODO
+            #self.spin=scipy.nan
             return scipy.nan,scipy.nan
     else:
         initial_porb = system.Porb

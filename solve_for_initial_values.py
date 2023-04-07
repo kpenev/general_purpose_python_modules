@@ -19,6 +19,7 @@ from orbital_evolution.planet_interface import LockedPlanet
 class InitialValueFinder:
     """TODO add proper documentation."""
 
+    @staticmethod
     def _create_planet(mass,
                       radius,
                       dissipation=None):
@@ -47,6 +48,7 @@ class InitialValueFinder:
             planet.set_dissipation(**dissipation)
         return planet
     
+    @staticmethod
     def _create_star(mass,
                     feh,
                     interpolator,
@@ -238,7 +240,7 @@ class InitialValueFinder:
             semimajor=binary.semimajor(porb_initial),
             #pylint: enable=no-member
             eccentricity=initial_eccentricity,
-            spin_angmom=initial_secondary_angmom,
+            spin_angmom=numpy.array(initial_secondary_angmom),
             inclination=initial_obliquity,
             periapsis=initial_periapsis,
             locked_surface=False,
@@ -341,12 +343,16 @@ class InitialValueFinder:
         primary = self._create_primary()
         secondary = self._create_secondary()
 
+        print("solve_for_initial_values.py:try_system()")
+        print("Secondary core formation age")
+        print(secondary.core_formation_age())
+
         binary=self._create_system(
             primary,
             secondary,
             #False positive
             #pylint: disable=no-member
-            porb_initial=initial_orbital_period.to(units.day).value,
+            porb_initial=initial_orbital_period,#.to(units.day).value,
             #pylint: enable=no-member
             initial_eccentricity=initial_eccentricity,
             initial_obliquity=initial_obliquity,
@@ -354,19 +360,19 @@ class InitialValueFinder:
         )
 
         binary.evolve(
-            self.age,
-            self.evolution_max_time_step,
-            self.evolution_precision,
+            self.target_state.age,
+            self.target_state.evolution_max_time_step,
+            self.target_state.evolution_precision,
             None,
             timeout=3600
             )
         
         final_state=binary.final_state()
-        assert(final_state.age==self.age)
+        assert(final_state.age==self.target_state.age)
 
         porb_found=binary.orbital_period(final_state.semimajor)
         ecc_found=final_state.eccentricity
-        obliq_found=final_state.envelope_inclination
+        obliq_found=0 #final_state.envelope_inclination  TODO: this isn't a variable in final_state. Also, there are two different obliquities.
 
         primary.delete()
         secondary.delete()
@@ -485,7 +491,9 @@ class InitialValueFinder:
             age=current_age.to(units.Gyr).value,
             Porb=porb.to(units.day).value,
             Pdisk=disk_period.to(units.day).value,
-            planet_formation_age=disk_dissipation_age.to(units.Gyr).value
+            planet_formation_age=disk_dissipation_age.to(units.Gyr).value,
+            evolution_max_time_step=extra_evolve_args['max_time_step'],
+            evolution_precision=extra_evolve_args['precision']
             #pylint: enable=no-member
         )
         logging.getLogger(__name__).info(
@@ -543,6 +551,11 @@ class InitialValueFinder:
         """Return the angular momentum of the secondary when binary forms."""
 
         secondary = self._create_secondary()
+
+        print("solve_for_initial_values.py:get_secondary_initial_angmom()")
+        print("Secondary core formation age")
+        print(secondary.core_formation_age())
+        #print(secondary.core_inertia())
 
         if not self.secondary_star:
             return (
@@ -647,7 +660,7 @@ class InitialValueFinder:
             secondary,
             #False positive
             #pylint: disable=no-member
-            porb_initial=porb_initial.to(units.day).value,
+            porb_initial=porb_initial,
             #pylint: enable=no-member
             initial_eccentricity=initial_eccentricity,
             initial_obliquity=initial_obliquity,

@@ -400,8 +400,6 @@ def find_evolution(system,
         ecc_true  = system.eccentricity
         #obliq_true = system.obliquity
 
-        scaled_tolerance = orbital_period_tolerance / eccentricity_tolerance
-
         # Sanity check
         if ecc_i < 0 or ecc_i >= 1:
             #logger.warning('Invalid Values')      TODO
@@ -443,9 +441,9 @@ def find_evolution(system,
             print("Looks like we found what we're looking for!")
             raise ValueError("solver and errfunc() have found initial values with acceptable results",1,porb_i,ecc_i)
 
-        return porb_diff,scaled_tolerance*ecc_diff#,obliq_found-obliq_true
+        return porb_diff,ecc_diff#,obliq_found-obliq_true
 
-    def errfunc_e(other_initial_conditions,
+    def errfunc_e(other_initial_conditions, #TODO: make it just be one error function. At least update _p to reflect main function's arguments
                   obliq_i,
                   value_finder,
                   initial_secondary_angmom,
@@ -489,11 +487,11 @@ def find_evolution(system,
     if 'max_time_step' not in extra_evolve_args:
         extra_evolve_args['max_time_step'] = 1e-3
     #pylint: enable=no-member
-
+    
     # We scale the tolerances so that we can handle both outputs
     # from the 2D solver at once
-    ftol = orbital_period_tolerance
-    xtol = max(ftol / 100, 1e-12)
+    #ftol = orbital_period_tolerance
+    #xtol = max(ftol / 100, 1e-12)
     
     value_finder = InitialValueFinder(
         system=system,
@@ -529,11 +527,11 @@ def find_evolution(system,
         try:
             initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
             if initial_eccentricity == 'solve':
-                solved=scipy.optimize.root(errfunc_e, #,initial_eccentricity,third_value
+                solved=scipy.optimize.root(errfunc_e,
                                                                         [initial_guess[0],initial_guess[1]],
                                                                         method='lm',
-                                                                        options={'xtol':0, #xtol,
-                                                                                'ftol':0, #ftol,
+                                                                        options={'xtol':0,
+                                                                                'ftol':0,
                                                                                 'maxiter':max_iterations},
                                                                         args=(initial_guess[2],
                                                                             value_finder,
@@ -543,18 +541,19 @@ def find_evolution(system,
                 )
                 initial_porb,initial_eccentricity=solved.x[0],solved.x[1]
             elif initial_obliquity == 'solve':
-                initial_porb,initial_obliquity=scipy.optimize.root(errfunc_o,
+                solved=scipy.optimize.root(errfunc_o,
                                                                     [initial_guess[0],initial_guess[2]],
                                                                     method='lm',
-                                                                    options={'xtol':xtol,
-                                                                            'ftol':ftol,
-                                                                            'maxiter':20},
+                                                                    options={'xtol':0,
+                                                                            'ftol':0,
+                                                                            'maxiter':max_iterations},
                                                                     args=(initial_guess[1],
                                                                             value_finder,
                                                                             initial_secondary_angmom,
                                                                             orbital_period_tolerance,
                                                                             eccentricity_tolerance)
                 )
+                initial_porb,initial_obliquity=solved.x[0],solved.x[2]
             else:
                 # Just solving for period
                 initial_porb = scipy.optimize.brentq(
@@ -563,6 +562,7 @@ def find_evolution(system,
                     eccentricity_upper_limit,
                     xtol=1e-2, #TODO: make one of these also use appropriate tolerance
                     rtol=1e-2,
+                    maxiter=max_iterations,
                     args=([initial_guess[1],initial_guess[2]],
                             value_finder,
                             initial_secondary_angmom)

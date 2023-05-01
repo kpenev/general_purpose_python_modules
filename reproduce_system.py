@@ -531,35 +531,37 @@ def find_evolution(system,
         try:
             initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
             if initial_eccentricity == 'solve':
-                solved=scipy.optimize.root(errfunc,
-                                                                        [initial_guess[0],initial_guess[1]],
-                                                                        method='lm',
-                                                                        options={'xtol':0,
-                                                                                'ftol':0,
-                                                                                'maxiter':max_iterations},
-                                                                        args=(initial_guess[2],
-                                                                            value_finder,
-                                                                            initial_secondary_angmom,
-                                                                            orbital_period_tolerance,
-                                                                            eccentricity_tolerance,
-                                                                            obliquity_tolerance,
-                                                                            "ecc")
+                solved = scipy.optimize.root(
+                    errfunc,
+                    [initial_guess[0],initial_guess[1]],
+                    method='lm',
+                    options={'xtol':0,
+                            'ftol':0,
+                            'maxiter':max_iterations},
+                    args=(initial_guess[2],
+                            value_finder,
+                            initial_secondary_angmom,
+                            orbital_period_tolerance,
+                            eccentricity_tolerance,
+                            obliquity_tolerance,
+                            "ecc")
                 )
                 initial_porb,initial_eccentricity=solved.x[0],solved.x[1]
             elif initial_obliquity == 'solve':
-                solved=scipy.optimize.root(errfunc,
-                                                                    [initial_guess[0],initial_guess[2]],
-                                                                    method='lm',
-                                                                    options={'xtol':0,
-                                                                            'ftol':0,
-                                                                            'maxiter':max_iterations},
-                                                                    args=(initial_guess[1],
-                                                                            value_finder,
-                                                                            initial_secondary_angmom,
-                                                                            orbital_period_tolerance,
-                                                                            eccentricity_tolerance,
-                                                                            obliquity_tolerance,
-                                                                            "obliq")
+                solved = scipy.optimize.root(
+                    errfunc,
+                    [initial_guess[0],initial_guess[2]],
+                    method='lm',
+                    options={'xtol':0,
+                            'ftol':0,
+                            'maxiter':max_iterations},
+                    args=(initial_guess[1],
+                            value_finder,
+                            initial_secondary_angmom,
+                            orbital_period_tolerance,
+                            eccentricity_tolerance,
+                            obliquity_tolerance,
+                            "obliq")
                 )
                 initial_porb,initial_obliquity=solved.x[0],solved.x[1]
             else:

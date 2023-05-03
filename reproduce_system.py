@@ -385,8 +385,10 @@ def find_evolution(system,
         for details.
     """
 
-    def errfunc(initial_conditions_a,
-                initial_conditions_b,
+    logger=logging.getLogger(__name__)
+
+    def errfunc(variable_conditions,
+                fixed_conditions,
                 value_finder,
                 initial_secondary_angmom,
                 orbital_period_tolerance,
@@ -400,19 +402,22 @@ def find_evolution(system,
         """
 
         if solve_type == "porb":
-            porb_i = initial_conditions_a
-            ecc_i  = initial_conditions_b[0]
-            obliq_i = initial_conditions_b[1]
-        elif solve_type == "ecc":
-            porb_i = initial_conditions_a[0]
-            ecc_i  = initial_conditions_a[1]
-            obliq_i = initial_conditions_b
-        elif solve_type == "obliq":
-            porb_i = initial_conditions_a[0]
-            ecc_i  = initial_conditions_b
-            obliq_i = initial_conditions_a[1]
+            error_out = scipy.nan
+            porb_i = variable_conditions
+            ecc_i  = fixed_conditions[0]
+            obliq_i = fixed_conditions[1]
         else:
-            raise ValueError("Invalid solve type",2)
+            error_out = [scipy.nan,scipy.nan]
+            if solve_type == "ecc":
+                porb_i = variable_conditions[0]
+                ecc_i  = variable_conditions[1]
+                obliq_i = fixed_conditions
+            elif solve_type == "obliq":
+                porb_i = variable_conditions[0]
+                ecc_i  = fixed_conditions
+                obliq_i = variable_conditions[1]
+            else:
+                raise ValueError("Invalid solve type",2)
         
         initial_conditions = [porb_i,ecc_i,obliq_i]
 
@@ -421,60 +426,39 @@ def find_evolution(system,
         #obliq_true = system.obliquity
 
         # Sanity check
-        #TODO: check value ranges that I'm checking here
-        if (ecc_i < 0 or ecc_i >= 1) or (porb_i < 0 or porb_i > 100) or (obliq_i < 0 or obliq_i >90):
-            #logger.warning('Invalid Values')      TODO
-            if solve_type == "porb":
-                return scipy.nan
-            else:
-                return scipy.nan,scipy.nan
+        if (ecc_i < 0 or ecc_i >= 1) or (porb_i < 0 or porb_i > 100) or (obliq_i < 0 or obliq_i >180):
+            logger.warning('Invalid Initial Values')
+            return error_out
 
         porb_found,ecc_found,obliq_found = value_finder.try_system(initial_conditions,initial_secondary_angmom)
 
-        print("Found values")
-        print(porb_found)
-        print(ecc_found)
-        print(obliq_found)
-
-        print("Target values")
-        print(porb_true.to_value("day"))
-        print(ecc_true)
-        #print(obliq_true)
+        logger.debug('Found porb, ecc, obliq: %f, %f, %f',porb_found,ecc_found,obliq_found)
+        logger.debug('Target porb, ecc, obliq: %f, %f, OBLIQUITY NOT YET HANDLED',porb_true.to_value("day"),ecc_true)
 
         porb_diff = porb_found-porb_true.to_value("day")
         ecc_diff = ecc_found-ecc_true
 
-        print("porb tolerance")
-        print(orbital_period_tolerance)
-        print("porb diff")
-        print(porb_diff)
-        print("ecc tolerance")
-        print(eccentricity_tolerance)
-        print("ecc diff")
-        print(ecc_diff)
+        logger.debug('porb tolerance vs porb diff: %f, %f',orbital_period_tolerance,porb_diff)
+        logger.debug('ecc tolerance vs ecc diff: %f, %f',eccentricity_tolerance,ecc_diff)
 
         if numpy.logical_or(numpy.isnan(porb_found),(numpy.isnan(ecc_found))):
-            #self.logger.error('Binary system was destroyed')   TODO
-            raise ValueError("TODO: appropriate message",0)
+            logger.warning('Binary system was destroyed')
+            return error_out
 
         if solve_type == "porb":
-            if abs(porb_diff) <= orbital_period_tolerance:
-                raise ValueError("solver and errfunc() have found initial values with acceptable results",1,porb_i,ecc_i,obliq_i)
-            else:
-                print(porb_diff)
-                return porb_diff
+            difference = porb_diff
+            check = orbital_period_tolerance
         elif solve_type == "ecc":
-            if abs(porb_diff) <= orbital_period_tolerance and abs(ecc_diff) <= eccentricity_tolerance:
-                raise ValueError("solver and errfunc() have found initial values with acceptable results",1,porb_i,ecc_i,obliq_i)
-            else:
-                print([porb_diff,ecc_diff])
-                return porb_diff,ecc_diff
-        elif solve_type == "obliq":
-            if abs(porb_diff) <= orbital_period_tolerance and abs(obliq_found-obliq_i) <= obliquity_tolerance:
-                raise ValueError("solver and errfunc() have found initial values with acceptable results",1,porb_i,ecc_i,obliq_i)
-            else:
-                print([porb_diff,obliq_found-obliq_i])
-                return porb_diff,obliq_found-obliq_i
+            difference = [porb_diff,ecc_diff]
+            check = [orbital_period_tolerance,eccentricity_tolerance]
+        else:
+            difference = [porb_diff,obliq_found-obliq_i]
+            check = [orbital_period_tolerance,obliquity_tolerance]
+        if numpy.all(numpy.abs(difference) <= check):
+            raise ValueError("solver and errfunc() have found initial values with acceptable results",1,porb_i,ecc_i,obliq_i)
+        else:
+            print(difference)
+            return difference
 
     #False positive
     #pylint: disable=no-member
@@ -491,11 +475,6 @@ def find_evolution(system,
     if 'max_time_step' not in extra_evolve_args:
         extra_evolve_args['max_time_step'] = 1e-3
     #pylint: enable=no-member
-    
-    # We scale the tolerances so that we can handle both outputs
-    # from the 2D solver at once
-    #ftol = orbital_period_tolerance
-    #xtol = max(ftol / 100, 1e-12)
     
     value_finder = InitialValueFinder(
         system=system,
@@ -527,6 +506,7 @@ def find_evolution(system,
     )
     initial_eccentricity = 'solve'    #TODO remove this debug thing
     initial_guess = [10,0.5,3]  #TODO
+    #initial_guess = [system.orbital_period,system.eccentricity,3]  #TODO make obliq reflect system
     if solve:
         try:
             initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
@@ -566,12 +546,14 @@ def find_evolution(system,
                 initial_porb,initial_obliquity=solved.x[0],solved.x[1]
             else:
                 # Just solving for period
+                # Loop to find a bracket, check sign of difference evolution returns, THEN do brentq TODO
+                #     also machine learning will probably replace/reduce need for the loop just FYI
                 initial_porb = scipy.optimize.brentq(
                     errfunc,
-                    system.eccentricity,
+                    system.eccentricity, #heyyyy buddy this should be period TODO
                     eccentricity_upper_limit,
-                    xtol=1e-2, #TODO: make one of these also use appropriate tolerance
-                    rtol=1e-2,
+                    xtol=0,
+                    rtol=0,
                     maxiter=max_iterations,
                     args=([initial_guess[1],initial_guess[2]],
                             value_finder,
@@ -582,11 +564,7 @@ def find_evolution(system,
                             "porb")
                 )
         except ValueError as err:
-            #self.logger.exception('Solver Crashed') #TODO
-            #self.spin=scipy.nan
-        #    print("I failed.")
-        #    return scipy.nan,scipy.nan
-            print("we excepted")
+            print("we excepted") #TODO
             if err.args[1] == 1:
                 print("We did so because we found what we're looking for!")
                 return value_finder.get_found_evolution(
@@ -596,6 +574,7 @@ def find_evolution(system,
                     max_age=max_age
                 )
             else:
+                logger.exception('Solver Crashed')
                 raise
     else:
         initial_porb = system.Porb
@@ -607,6 +586,8 @@ def find_evolution(system,
         max_age=max_age
     )
 #pylint: enable=too-many-locals
+
+#TODO: unit tests. Testing just porb. etc.
 
 if __name__ == '__main__':
     config = parse_command_line()

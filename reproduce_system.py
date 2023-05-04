@@ -431,6 +431,7 @@ def find_evolution(system,
             return error_out
 
         porb_found,ecc_found,obliq_found = value_finder.try_system(initial_conditions,initial_secondary_angmom)
+        #TODO: if this just itself returns an evolution we can run fewer evolutions. Can just get these values from the last step in an evolution.
 
         logger.debug('Found porb, ecc, obliq: %f, %f, %f',porb_found,ecc_found,obliq_found)
         logger.debug('Target porb, ecc, obliq: %f, %f, OBLIQUITY NOT YET HANDLED',porb_true.to_value("day"),ecc_true)
@@ -504,9 +505,8 @@ def find_evolution(system,
         scaled_period_guess=scaled_period_guess,
         **extra_evolve_args
     )
-    initial_eccentricity = 'solve'    #TODO remove this debug thing
-    initial_guess = [10,0.5,3]  #TODO
-    #initial_guess = [system.orbital_period,system.eccentricity,3]  #TODO make obliq reflect system
+    #initial_eccentricity = 'solve'    #TODO remove this debug thing
+    initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,3]  #TODO make obliq reflect system
     if solve:
         try:
             initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
@@ -546,14 +546,77 @@ def find_evolution(system,
                 initial_porb,initial_obliquity=solved.x[0],solved.x[1]
             else:
                 # Just solving for period
-                # Loop to find a bracket, check sign of difference evolution returns, THEN do brentq TODO
-                #     also machine learning will probably replace/reduce need for the loop just FYI
+
+                period_search_factor = 1.1 #TODO set this to a better value
+                max_porb_initial = 50.0 #TODO set this to a better value
+                porb_min, porb_max = scipy.nan, scipy.nan
+                porb_initial = system.orbital_period.to_value("day") #2.0
+                porb=value_finder.try_system([porb_initial,0.5,3],initial_secondary_angmom)[0] #TODO better initial ecc and obliq
+                if scipy.isnan(porb):
+                    porb=0.0
+                porb_error = porb - system.orbital_period.to_value("day")
+                guess_porb_error = porb_error
+                step = (period_search_factor if guess_porb_error < 0
+                        else 1.0 / period_search_factor)
+
+                while (
+                        porb_error * guess_porb_error > 0
+                        and
+                        porb_initial < max_porb_initial
+                ):
+                    if porb_error < 0:
+                        porb_min = porb_initial
+                    else:
+                        porb_max = porb_initial
+                    porb_initial *= step
+                    logger.debug(
+                        (
+                            'Before evolution:'
+                            '\n\tporb_error = %s'
+                            '\n\tguess_porb_error = %s'
+                            '\n\tporb_initial = %s'
+                            '\n\tporb_min = %s'
+                            '\n\tporb_max = %s'
+                            '\n\tstep = %s'
+                        ),
+                        repr(porb_error),
+                        repr(guess_porb_error),
+                        repr(porb_initial),
+                        porb_min,
+                        porb_max,
+                        step
+                    )
+                    porb = value_finder.try_system([porb_initial,0.5,3],
+                                                        initial_secondary_angmom)[0] #TODO better initial ecc and obliq
+                    logger.debug('After evolution: porb = %s', repr(porb))
+                    if scipy.isnan(porb):
+                        porb=0.0
+                    porb_error = porb - system.orbital_period.to_value("day")
+
+                if porb==0.0:
+                    logger.exception("porb is 0")
+                    raise ValueError("porb is 0",0)
+
+                if porb_error < 0:
+                    porb_min = porb_initial
+                else:
+                    porb_max = porb_initial
+                    if porb_error == 0:
+                        porb_min = porb_initial
+
+                logger.info(
+                    'For Pdisk = %s, orbital period range: %s < Porb < %s',
+                    repr(disk_period),
+                    repr(porb_min),
+                    repr(porb_max)
+                )
+
                 initial_porb = scipy.optimize.brentq(
                     errfunc,
-                    system.eccentricity, #heyyyy buddy this should be period TODO
-                    eccentricity_upper_limit,
-                    xtol=0,
-                    rtol=0,
+                    porb_min,
+                    porb_max,
+                    xtol=orbital_period_tolerance,
+                    rtol=orbital_period_tolerance,
                     maxiter=max_iterations,
                     args=([initial_guess[1],initial_guess[2]],
                             value_finder,
@@ -564,15 +627,10 @@ def find_evolution(system,
                             "porb")
                 )
         except ValueError as err:
-            print("we excepted") #TODO
             if err.args[1] == 1:
-                print("We did so because we found what we're looking for!")
-                return value_finder.get_found_evolution(
-                    porb_initial=err.args[2],
-                    initial_eccentricity=err.args[3],
-                    initial_obliquity=err.args[4],
-                    max_age=max_age
-                )
+                initial_porb=err.args[2]
+                initial_eccentricity=err.args[3]
+                initial_obliquity=err.args[4]
             else:
                 logger.exception('Solver Crashed')
                 raise

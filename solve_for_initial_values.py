@@ -335,51 +335,6 @@ class InitialValueFinder:
 
         return evolution
     
-    def try_system(self,initial_conditions,initial_secondary_angmom):
-        initial_orbital_period=initial_conditions[0]
-        initial_eccentricity=initial_conditions[1]
-        initial_obliquity=initial_conditions[2]
-
-        primary = self._create_primary()
-        secondary = self._create_secondary()
-
-        print("solve_for_initial_values.py:try_system()")
-        print("Secondary core formation age")
-        print(secondary.core_formation_age())
-
-        binary=self._create_system(
-            primary,
-            secondary,
-            #False positive
-            #pylint: disable=no-member
-            porb_initial=initial_orbital_period,#.to(units.day).value,
-            #pylint: enable=no-member
-            initial_eccentricity=initial_eccentricity,
-            initial_obliquity=initial_obliquity,
-            initial_secondary_angmom=initial_secondary_angmom
-        )
-
-        binary.evolve(
-            self.target_state.age,
-            self.target_state.evolution_max_time_step,
-            self.target_state.evolution_precision,
-            None,
-            timeout=3600
-            )
-        
-        final_state=binary.final_state()
-        assert(final_state.age==self.target_state.age)
-
-        porb_found=binary.orbital_period(final_state.semimajor)
-        ecc_found=final_state.eccentricity
-        obliq_found=0 #final_state.envelope_inclination  TODO: this isn't a variable in final_state. Also, there are two different obliquities.
-
-        primary.delete()
-        secondary.delete()
-        binary.delete()
-
-        return porb_found,ecc_found,obliq_found
-    
     def _get_combined_evolve_args(self, overwrite_args):
         """Return `self._extra_evolve_args` overwritten by `overwrite_args`."""
 
@@ -552,11 +507,6 @@ class InitialValueFinder:
 
         secondary = self._create_secondary()
 
-        print("solve_for_initial_values.py:get_secondary_initial_angmom()")
-        print("Secondary core formation age")
-        print(secondary.core_formation_age())
-        #print(secondary.core_inertia())
-
         if not self.secondary_star:
             return (
                 (
@@ -625,78 +575,72 @@ class InitialValueFinder:
 
         return result
     
-    def get_found_evolution(self,
-                            porb_initial,
-                            initial_eccentricity,
-                            initial_obliquity,
-                            max_age=None,
-                            **evolve_kwargs):
+    def try_system(self,initial_conditions,initial_secondary_angmom,max_age=None):
         """
-        Return the evolution matching the current system configuration.
+        Return the evolution matching the given system configuration.
 
         Args:
-            initial_eccentricity:    The initial eccentricity found to reproduce
-                the current state.
+            initial_conditions:    The initial period, eccentricity, and
+                obliquity to try reproducing the system with.
+
+            initial_secondary_angmom:    The initial angular momentum of the
+                secondary.
 
             max_age:    The age up to which to calculate the evolution. If None
                 (default), the star lifetime is used.
-
-            evolve_kwargs:    Additional keyword arguments to pass to
-                Binary.evolve()
 
         Returns:
             See EccentricitySolverCallable._format_evolution().
         """
 
-        evolve_kwargs = self._get_combined_evolve_args(evolve_kwargs)
-        initial_secondary_angmom = self.get_secondary_initial_angmom(
-            **evolve_kwargs
-        )
+        initial_orbital_period=initial_conditions[0]
+        initial_eccentricity=initial_conditions[1]
+        initial_obliquity=initial_conditions[2]
+
         primary = self._create_primary()
         secondary = self._create_secondary()
 
-        binary = self._create_system(
+        binary=self._create_system(
             primary,
             secondary,
             #False positive
             #pylint: disable=no-member
-            porb_initial=porb_initial,
+            porb_initial=initial_orbital_period,#.to(units.day).value,
             #pylint: enable=no-member
             initial_eccentricity=initial_eccentricity,
             initial_obliquity=initial_obliquity,
             initial_secondary_angmom=initial_secondary_angmom
         )
+
         if max_age is None:
             if isinstance(primary, EvolvingStar):
                 max_age = primary.lifetime()
             else:
-                max_age = (self.system.age).to(units.Gyr).value
+                max_age = (self.target_state.age).to(units.Gyr).value
         else:
             max_age = max_age.to(units.Gyr).value
 
         binary.evolve(
-            #False positive
-            #pylint: disable=no-member
             max_age,
-            #pylint: enable=no-member
-            **evolve_kwargs
-        )
+            self.target_state.evolution_max_time_step,
+            self.target_state.evolution_precision,
+            None,
+            timeout=3600
+            )
 
-        result = self._format_evolution(binary,
-                                        self.interpolator,
-                                        self.secondary_star)
+        final_state=binary.final_state()
+        assert(final_state.age==self.target_state.age)
+
+        #porb_found=binary.orbital_period(final_state.semimajor)
+        #ecc_found=final_state.eccentricity
+        #obliq_found=0 #final_state.envelope_inclination  TODO: this isn't a variable in final_state. Also, there are two different obliquities.
+
+        evolution = self._format_evolution(binary,
+                                           self.interpolator,
+                                           self.secondary_star)
 
         primary.delete()
         secondary.delete()
         binary.delete()
 
-        return result
-
-    #def get_porb(self):
-    #    get_secondary_initial_angmom
-    
-    #def get_porb_and_e(self):
-    #    get_secondary_initial_angmom
-
-    #def get_porb_and_obliq(self):
-    #    get_secondary_initial_angmom
+        return evolution

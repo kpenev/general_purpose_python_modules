@@ -29,6 +29,10 @@ from general_purpose_python_modules.solve_for_initial_values import \
 from general_purpose_python_modules.spin_calculation import \
     SpinPeriod
 
+from multiprocessing import Pool
+import multiprocessing as mp
+from functools import partial
+
 def add_dissipation_cmdline(parser, lgq_suffixes=('primary', 'secondary')):
     """
     Add argumets to a command line parser to define tidal dissipation.
@@ -659,7 +663,63 @@ def find_evolution(system,
     return scipy.nan
 #pylint: enable=too-many-locals
 
-#TODO: unit tests. Testing just porb. etc.
+def test_find_evolution_parallel(test_set,**kwargs):
+
+    initial_eccentricity = test_set[0]
+    initial_obliquity = test_set[1]
+    solve = test_set[2]
+    secondary_is_star = test_set[3]
+
+    # # Print the current combination of parameters.
+    # print('initial_eccentricity =', initial_eccentricity)
+    # print('initial_obliquity =', initial_obliquity)
+    # print('solve =', solve)
+    # print('secondary_is_star =', secondary_is_star)
+
+    # Update kwargs with the current combination of parameters.
+    kwargs['initial_eccentricity'] = initial_eccentricity
+    kwargs['initial_obliquity'] = initial_obliquity
+    kwargs['solve'] = solve
+    kwargs['secondary_is_star'] = secondary_is_star
+
+    # Run the function.
+    try:
+        resultA = find_evolution(**kwargs)
+        result = resultA.orbital_period[-1],resultA.eccentricity[-1]
+        print(resultA)
+    except Exception as e:
+        print('Oops, looks like that one crashed!')
+        print(e)
+        result = e#"CRASH"
+
+    return (test_set,result)
+
+def test_find_evolution(**kwargs):
+    """
+    Test a bespoke selection of values for the find_evolution() function.
+    """
+
+    initial_eccentricity_values = ['solve', -0.1, 0.0, kwargs['system'].eccentricity, 0.99, 1]
+    initial_obliquity_values = ['solve', -1.0, 0.0, 90, 180, 181]
+    solve_values = [True, False]
+    secondary_is_star_values = [None, True, False]
+
+    all_iteration_sets = []
+
+    for initial_eccentricity in initial_eccentricity_values:
+        for initial_obliquity in initial_obliquity_values:
+            for solve in solve_values:
+                for secondary_is_star in secondary_is_star_values:
+                    all_iteration_sets.append([initial_eccentricity,initial_obliquity,solve,secondary_is_star])
+
+    processNum = 3
+    test_it = partial(test_find_evolution_parallel,**kwargs)
+    output=numpy.array(())
+    with Pool(processNum) as p:
+        output=p.map(test_it,all_iteration_sets)
+    
+    # Save the output to a file.
+    numpy.savetxt("test_find_evolution_output.txt",output,fmt="%s")
 
 if __name__ == '__main__':
     config = parse_command_line()
@@ -713,6 +773,11 @@ if __name__ == '__main__':
                   'precision']:
         kwargs[param] = getattr(config, param)
 
-    evolution = find_evolution(**kwargs)
-    with open(config.output_pickle, 'ab') as outf:
-        pickle.dump(evolution, outf)
+    testing = True
+    if testing == False:
+        evolution = find_evolution(**kwargs)
+        with open(config.output_pickle, 'ab') as outf:
+            pickle.dump(evolution, outf)
+    else:
+        #mp.set_start_method('spawn')
+        test_find_evolution(**kwargs)

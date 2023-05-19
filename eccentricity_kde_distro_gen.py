@@ -80,8 +80,7 @@ class eccentricity_circular_kde_distro_gen(stats.rv_continuous):
         )
         if self._uniform_e_samples:
             return result * center
-        else:
-            return result
+        return result
 
 
     def _pdf(self, x):
@@ -173,8 +172,6 @@ class eccentricity_circular_kde_distro_gen(stats.rv_continuous):
             e_samples,
             kernel_width
         ).sum() / kernel_width
-#pylint: enable=invalid-name
-#pylint: enable=arguments-differ
 
 class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
     r"""RV with PDF given by KDE of (esinw,ecosw) samples for non-circular kern.
@@ -209,7 +206,111 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
     %(example)s
     """
 
+    def _get_support(self):
+
+        if numpy.logical_and(
+                numpy.isfinite(self._kernel['sin'].support()).any(),
+                numpy.isfinite(self._kernel['cos'].support()).any()
+        ):
+            ranges = dict()
+            for component in ['sin', 'cos']:
+                ranges[component] = dict(
+                    min=(self._samples[component]
+                         +
+                         self._kernel[component].support()[0]),
+                    max=(self._samples[component]
+                         +
+                         self._kernel[component].support()[1]),
+
+                )
+            corner_e2 = numpy.concatenate(
+                (
+                    numpy.square(ranges['sin'][sin_bound])
+                    +
+                    numpy.square(ranges['cos'][cos_bound])
+                )
+                for sin_bound in ['min', 'max']
+                for cos_bound in ['min', 'max']
+            )
+
+            if numpy.logical_and(
+                numpy.logical_and(ranges['sin']['min'] <= 0,
+                                  ranges['sin']['max'] >= 0),
+                numpy.logical_and(ranges['cos']['min'] <= 0,
+                                  ranges['cos']['max'] >= 0)
+            ).any():
+                support_lower = 0.0
+            else:
+                support_lower = numpy.sqrt(corner_e2.min())
+            return support_lower, min(1.0, numpy.sqrt(corner_e2.max()))
+
+        return 0.0, 1.0
+
+
+    def _get_w_integration_points(self):
+        """Return the ``points`` argument to use for periapsis integrals."""
+
+        means = {
+            component: numpy.mean(self._samples[component])
+            for component in ['sin', 'cos']
+        }
+        stddevs = {
+            component: numpy.std(self._samples[component])
+            for component in ['sin', 'cos']
+        }
+        return (
+            numpy.arctan2(esinw, ecosw)
+            for esinw in [means['sin'] - stddevs['sin'],
+                          means['sin'],
+                          means['sin'] + stddevs['sin']]
+            for ecosw in [means['cos'] - stddevs['cos'],
+                          means['cos'],
+                          means['cos'] + stddevs['cos']]
+        )
+
+
+    def _kernel_arg(self, e_component, which):
+        """Get difference between samples (inner index) and x (outer index)."""
+
+        rhs, lhs = numpy.meshgrid(self._samples[which], e_component)
+        return numpy.squeeze(lhs - rhs)
+
+
+    def _pdf_integrand(self, eccentricity, periapsis):
+        """The function to integrate over periapsis to get PDF(e)."""
+
+        numpy.average(
+            self._kernel['sin'].pdf(
+                self._kernel_arg(eccentricity * numpy.sin(periapsis), 'sin')
+            )
+            *
+            self._kernel['cos'].pdf(
+                self._kernel_arg(eccentricity * numpy.cos(periapsis), 'cos')
+            ),
+            axis=-1,
+            weights=self._weights
+        )
+
+
+    def _calculate_pdf(self, eccentricity):
+        """Numerically integrate over periapsis to get PDF(e)."""
+
+        if eccentricity < 0 or eccentricity > 1:
+            return 0.0
+
+        return quad(
+            self._pdf_integrand,
+            0,
+            2.0 * numpy.pi,
+            (eccentricity,),
+            points=self._w_integration_points
+        )
+
+
+    #False positive, kernel accessed through locals()
+    #pylint: disable=unused-argument
     def __init__(self,
+                 *,
                  esinw_samples,
                  ecosw_samples,
                  sin_kernel,
@@ -251,17 +352,17 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
             None
         """
 
-        super().__init__(a=0.0, name="EccentricityDistro", **kwargs)
-
         self._kernel_config = dict()
         self._kernel = dict()
         self._samples = dict()
+        self._w_integration_points = []
 
         for component in ['sin', 'cos']:
             kernel = locals()[component + '_kernel']
             if isinstance(kernel, tuple):
                 self._kernel_config[component] = kernel
-                self._kernel = getattr(stats, kernel[0])(*kernel[1], **kernel[2])
+                self._kernel[component] = getattr(stats, kernel[0])(*kernel[1],
+                                                                    **kernel[2])
             else:
                 self._kernel_config[component] = None
                 self._kernel[component] = kernel
@@ -270,21 +371,32 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
                 locals()['e' + component + 'wsamples']
             )
 
-        <++>
+        if uniform_e_samples:
+            self._weights = numpy.sqrt(
+                numpy.square(esinw_samples)
+                +
+                numpy.square(ecosw_samples)
+            )
+        else:
+            self._weights = None
 
-        self._weights = weights
-        kernel_min, kernel_max = self._kernel.support()
-        self._support = ()
-        super().__init__(a=(self._samples.min() + kernel_min),
-                         b=(self._samples.max() + kernel_max))
+        self._w_integration_points = self._get_w_integration_points()
 
+        support_lower, support_upper = self._get_support()
+        super().__init__(a=support_lower,
+                         b=support_upper,
+                         name="EccentricityDistro",
+                         **kwargs)
+    #pylint: enable=unused-argument
 
+#pylint: enable=invalid-name
+#pylint: enable=arguments-differ
 
 
 if __name__ == '__main__':
     val=0.05
     unc=0.001
-    e_distro = eccentricity_kde_distro_gen([0.0, val], unc)
+    e_distro = eccentricity_circular_kde_distro_gen([0.0, val], unc)
 
     plot_x = numpy.linspace(0.0, val + 5.0 * unc, 1000)
     pyplot.plot(

@@ -482,9 +482,9 @@ def find_evolution(system,
         period_search_factor = 1.1
         max_porb_initial = 50.0
         porb_min, porb_max = scipy.nan, scipy.nan
-        porb_initial = system.orbital_period.to_value("day") #2.0
-        #TODO better initial ecc and obliq
-        porb = value_finder.try_system([porb_initial,0.5,3],initial_secondary_angmom,max_age).orbital_period[-1]
+        porb_initial = system.orbital_period.to_value("day")
+        #TODO better initial obliq
+        porb = value_finder.try_system([porb_initial,system.eccentricity,3],initial_secondary_angmom,max_age).orbital_period[-1]
         if scipy.isnan(porb):
             porb=0.0
         porb_error = porb - system.orbital_period.to_value("day")
@@ -519,8 +519,8 @@ def find_evolution(system,
                 porb_max,
                 step
             )
-            #TODO better initial ecc and obliq
-            porb = value_finder.try_system([porb_initial,0.5,3],
+            #TODO better initial obliq
+            porb = value_finder.try_system([porb_initial,system.eccentricity,3],
                                                     initial_secondary_angmom,
                                                     max_age).orbital_period[-1]
             logger.debug('After evolution: porb = %s', repr(porb))
@@ -752,7 +752,7 @@ def test_find_evolution(**kwargs):
         output=p.map(test_it,all_iteration_sets)
     
     # Save the output to a file.
-    numpy.savetxt("test_find_evolution_output_2.txt",output,fmt="%s")
+    numpy.savetxt("test_find_evolution_output_3.txt",output,fmt="%s")
 
 if __name__ == '__main__':
     config = parse_command_line()

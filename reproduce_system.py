@@ -30,8 +30,9 @@ from general_purpose_python_modules.spin_calculation import \
     SpinPeriod
 
 from multiprocessing import Pool
-import multiprocessing as mp
+#import multiprocessing as mp
 from functools import partial
+from multiprocessing_util import setup_process
 
 def add_dissipation_cmdline(parser, lgq_suffixes=('primary', 'secondary')):
     """
@@ -288,6 +289,7 @@ def find_evolution(system,
                    dissipation,
                    *,
                    max_age=None,
+                   initial_porb=27.3 * units.day,
                    initial_eccentricity=0.0,
                    initial_obliquity=0.0,
                    disk_period=None,
@@ -330,6 +332,9 @@ def find_evolution(system,
 
         max_age:    The maximum age up to which to calculate the evolution. If
             not specified, defaults to star's lifetime.
+        
+        initial_porb:    The initial orbital period to start the evolution with
+            if we are not attempting to solve for anything.
 
         initial_eccentricity:    The initial eccentricity to start the evolution
             with. If set to the string 'solve' an attempt is made to find an
@@ -369,6 +374,7 @@ def find_evolution(system,
             :meth:`InitialConditionSolver.__init__`
 
         eccentricity_upper_limit:    The maximum initial eccentricity to try.
+            TODO: Currently unused.
 
         solve:    If False, no attempt is made to find initial orbital period
             and/or eccentricity. Instead, the system parameters are assumed to
@@ -393,7 +399,6 @@ def find_evolution(system,
 
     def errfunc(variable_conditions,
                 fixed_conditions,
-                #value_finder,
                 initial_secondary_angmom,
                 orbital_period_tolerance,
                 eccentricity_tolerance,
@@ -421,7 +426,7 @@ def find_evolution(system,
                 ecc_i  = fixed_conditions
                 obliq_i = variable_conditions[1]
             else:
-                raise ValueError("Invalid solve type",2)
+                raise ValueError("Invalid solve type",0)
         
         initial_conditions = [porb_i,ecc_i,obliq_i]
 
@@ -434,8 +439,6 @@ def find_evolution(system,
             logger.warning('Invalid Initial Values')
             return error_out
 
-        #porb_found,ecc_found,obliq_found = value_finder.try_system(initial_conditions,initial_secondary_angmom)
-        #TODO: if this just itself returns an evolution we can run fewer evolutions. Can just get these values from the last step in an evolution.
         evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom,max_age)
         porb_found = evolution.orbital_period[-1]
         ecc_found = evolution.eccentricity[-1]
@@ -476,11 +479,11 @@ def find_evolution(system,
         zero.
         """
 
-        period_search_factor = 1.1 #TODO set this to a better value
-        max_porb_initial = 50.0 #TODO set this to a better value
+        period_search_factor = 1.1
+        max_porb_initial = 50.0
         porb_min, porb_max = scipy.nan, scipy.nan
         porb_initial = system.orbital_period.to_value("day") #2.0
-        #porb=value_finder.try_system([porb_initial,0.5,3],initial_secondary_angmom)[0] #TODO better initial ecc and obliq
+        #TODO better initial ecc and obliq
         porb = value_finder.try_system([porb_initial,0.5,3],initial_secondary_angmom,max_age).orbital_period[-1]
         if scipy.isnan(porb):
             porb=0.0
@@ -516,8 +519,7 @@ def find_evolution(system,
                 porb_max,
                 step
             )
-            #porb = value_finder.try_system([porb_initial,0.5,3],
-            #                                    initial_secondary_angmom)[0] #TODO better initial ecc and obliq
+            #TODO better initial ecc and obliq
             porb = value_finder.try_system([porb_initial,0.5,3],
                                                     initial_secondary_angmom,
                                                     max_age).orbital_period[-1]
@@ -546,6 +548,30 @@ def find_evolution(system,
 
         return porb_min, porb_max
 
+    # Sanity check eccentricity and obliquity
+    # This is redundant as it's also checked by POET
+    if isinstance(initial_eccentricity, str):
+        if initial_eccentricity != 'solve':
+            logger.error('Invalid initial eccentricity %f',initial_eccentricity)
+            raise ValueError("Invalid initial eccentricity")
+        elif solve == False:
+            logger.error('If we are not solving, initial eccentricity must be a numerical value')
+            raise ValueError("Invalid initial eccentricity")
+    elif initial_eccentricity < 0 or initial_eccentricity >= 1:
+        logger.error('Invalid initial eccentricity %f',initial_eccentricity)
+        raise ValueError("Invalid initial eccentricity")
+    
+    if isinstance(initial_obliquity, str):
+        if initial_obliquity != 'solve':
+            logger.error('Invalid initial obliquity %f',initial_obliquity)
+            raise ValueError("Invalid initial obliquity")
+        elif solve == False:
+            logger.error('If we are not solving, initial obliquity must be a numerical value')
+            raise ValueError("Invalid initial obliquity")
+    elif initial_obliquity < 0 or initial_obliquity > numpy.pi:
+        logger.error('Invalid initial obliquity %f',initial_obliquity)
+        raise ValueError("Invalid initial obliquity")
+    
     #False positive
     #pylint: disable=no-member
     if disk_period is None:
@@ -558,6 +584,8 @@ def find_evolution(system,
 
     if secondary_is_star is None:
         secondary_is_star = check_if_secondary_is_star(system)
+    if secondary_is_star == False:
+        raise ValueError("Code assumes in several places that the secondary is a star.")
     if 'max_time_step' not in extra_evolve_args:
         extra_evolve_args['max_time_step'] = 1e-3
     #pylint: enable=no-member
@@ -590,7 +618,7 @@ def find_evolution(system,
         scaled_period_guess=scaled_period_guess,
         **extra_evolve_args
     )
-    #initial_eccentricity = 'solve'    #TODO remove this debug thing
+
     initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,3]  #TODO make obliq reflect system
     initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
     if solve:
@@ -643,22 +671,24 @@ def find_evolution(system,
                             obliquity_tolerance,
                             "porb")
                 )
-        except ValueError as err: #TODO: Should also account for RuntimeError from solvers not converging within max_iterations
-            if err.args[1] == 1:
+        except ValueError as err:
+            if err.args[1] == 1: # This means we actually completed successfully
                 return err.args[2]
             else:
                 logger.exception('Solver Crashed')
                 raise
+        except RuntimeError as err:
+            logger.exception('Solver failed to converge. Erorr: %s',err)
+            return scipy.nan
     else:
-        initial_porb = system.Porb
         return value_finder.try_system(
-            [initial_porb,initial_eccentricity,initial_obliquity],
+            [initial_porb.to_value("day"),initial_eccentricity,initial_obliquity],
             initial_secondary_angmom,
             max_age
         )
 
     # If we get to this point, we tried to solve but didn't get a solution
-    # before we reached the max number of iterations.
+    # for some reason.
     logger.error("Solver failed to converge.")
     return scipy.nan
 #pylint: enable=too-many-locals
@@ -670,11 +700,9 @@ def test_find_evolution_parallel(test_set,**kwargs):
     solve = test_set[2]
     secondary_is_star = test_set[3]
 
-    # # Print the current combination of parameters.
-    # print('initial_eccentricity =', initial_eccentricity)
-    # print('initial_obliquity =', initial_obliquity)
-    # print('solve =', solve)
-    # print('secondary_is_star =', secondary_is_star)
+    logger=logging.getLogger(__name__)
+    logger.warning("We are starting a new round in this process.")
+    logger.warning("Test set: %s",test_set)
 
     # Update kwargs with the current combination of parameters.
     kwargs['initial_eccentricity'] = initial_eccentricity
@@ -685,12 +713,17 @@ def test_find_evolution_parallel(test_set,**kwargs):
     # Run the function.
     try:
         resultA = find_evolution(**kwargs)
-        result = resultA.orbital_period[-1],resultA.eccentricity[-1]
-        print(resultA)
+        if hasattr(resultA, 'orbital_period') and hasattr(resultA, 'eccentricity'):
+            result = resultA.orbital_period[-1],resultA.eccentricity[-1]
+        else:
+            result = resultA
+        logger.warning("Result: %s",result)
     except Exception as e:
-        print('Oops, looks like that one crashed!')
-        print(e)
-        result = e#"CRASH"
+        logger.warning("Crash: %s",e)
+        result = e
+    except:
+        logger.warning("Oops, looks like that one crashed in a weirder way than normal!")
+        result = "CRASH"
 
     return (test_set,result)
 
@@ -699,10 +732,10 @@ def test_find_evolution(**kwargs):
     Test a bespoke selection of values for the find_evolution() function.
     """
 
-    initial_eccentricity_values = ['solve', -0.1, 0.0, kwargs['system'].eccentricity, 0.99, 1]
-    initial_obliquity_values = ['solve', -1.0, 0.0, 90, 180, 181]
+    initial_eccentricity_values = ['solve', -0.1, 0.0, kwargs['system'].eccentricity, 0.99, 1.0]
+    initial_obliquity_values = ['solve', -1.0*numpy.pi/180, 0.0*numpy.pi/180, 90*numpy.pi/180, 180*numpy.pi/180, 181*numpy.pi/180]
     solve_values = [True, False]
-    secondary_is_star_values = [None, True, False]
+    secondary_is_star_values = [None, True]#, False]
 
     all_iteration_sets = []
 
@@ -712,14 +745,14 @@ def test_find_evolution(**kwargs):
                 for secondary_is_star in secondary_is_star_values:
                     all_iteration_sets.append([initial_eccentricity,initial_obliquity,solve,secondary_is_star])
 
-    processNum = 3
+    processNum = 6
     test_it = partial(test_find_evolution_parallel,**kwargs)
     output=numpy.array(())
-    with Pool(processNum) as p:
+    with Pool(processNum,setup_process) as p:
         output=p.map(test_it,all_iteration_sets)
     
     # Save the output to a file.
-    numpy.savetxt("test_find_evolution_output.txt",output,fmt="%s")
+    numpy.savetxt("test_find_evolution_output_2.txt",output,fmt="%s")
 
 if __name__ == '__main__':
     config = parse_command_line()
@@ -773,11 +806,10 @@ if __name__ == '__main__':
                   'precision']:
         kwargs[param] = getattr(config, param)
 
-    testing = True
+    testing = False
     if testing == False:
         evolution = find_evolution(**kwargs)
         with open(config.output_pickle, 'ab') as outf:
             pickle.dump(evolution, outf)
     else:
-        #mp.set_start_method('spawn')
         test_find_evolution(**kwargs)

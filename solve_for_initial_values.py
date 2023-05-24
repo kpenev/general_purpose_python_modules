@@ -598,14 +598,26 @@ class InitialValueFinder:
         initial_obliquity=initial_conditions[2]
 
         primary = self._create_primary()
+        if not primary.core_inertia(self.configuration['disk_dissipation_age']) > 0:
+            logging.getLogger(__name__).error(
+                'Reported primary core inertia at disk dissipation age: %s, ',
+                repr(primary.core_inertia(self.configuration['disk_dissipation_age']))
+            )
+            raise ValueError("Primary core inertia is zero. Primary has not formed.",0)
         secondary = self._create_secondary()
+        if not secondary.core_inertia(self.configuration['disk_dissipation_age']) > 0:
+            logging.getLogger(__name__).error(
+                'Reported secondary core inertia at disk dissipation age: %s, ',
+                repr(secondary.core_inertia(self.configuration['disk_dissipation_age']))
+            )
+            raise ValueError("Secondary core inertia is zero. Secondary has not formed.",0)
 
         binary=self._create_system(
             primary,
             secondary,
             #False positive
             #pylint: disable=no-member
-            porb_initial=initial_orbital_period,#.to(units.day).value,
+            porb_initial=initial_orbital_period,
             #pylint: enable=no-member
             initial_eccentricity=initial_eccentricity,
             initial_obliquity=initial_obliquity,
@@ -630,10 +642,6 @@ class InitialValueFinder:
 
         final_state=binary.final_state()
         assert(final_state.age==self.target_state.age)
-
-        #porb_found=binary.orbital_period(final_state.semimajor)
-        #ecc_found=final_state.eccentricity
-        #obliq_found=0 #final_state.envelope_inclination  TODO: this isn't a variable in final_state. Also, there are two different obliquities.
 
         evolution = self._format_evolution(binary,
                                            self.interpolator,

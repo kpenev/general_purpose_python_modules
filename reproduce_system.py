@@ -681,11 +681,15 @@ def find_evolution(system,
             logger.exception('Solver failed to converge. Erorr: %s',err)
             return scipy.nan
     else:
-        return value_finder.try_system(
-            [initial_porb.to_value("day"),initial_eccentricity,initial_obliquity],
-            initial_secondary_angmom,
-            max_age
-        )
+        try:
+            return value_finder.try_system(
+                [initial_porb.to_value("day"),initial_eccentricity,initial_obliquity],
+                initial_secondary_angmom,
+                max_age
+            )
+        except:
+            logger.exception('Something went wrong while trying to evolve the system with the given parameters.')
+            raise
 
     # If we get to this point, we tried to solve but didn't get a solution
     # for some reason.

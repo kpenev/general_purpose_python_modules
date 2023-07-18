@@ -396,6 +396,9 @@ def find_evolution(system,
     """
 
     logger=logging.getLogger(__name__)
+    #laststep = [0.5,0.5,True]
+    laststep = [scipy.nan,scipy.nan,scipy.nan]
+    earlierstep = [scipy.nan,scipy.nan,scipy.nan]
 
     def errfunc(variable_conditions,
                 fixed_conditions,
@@ -466,12 +469,30 @@ def find_evolution(system,
         else:
             difference = [porb_diff,obliq_found-obliq_i]
             check = [orbital_period_tolerance,obliquity_tolerance]
+        
         if numpy.all(numpy.abs(difference) <= check):
-            raise ValueError("solver and errfunc() have found initial values with acceptable results",1,evolution)
+            if (not numpy.isnan(earlierstep[0])) and solve_type == "ecc":
+                A = numpy.matrix([
+                                    [earlierstep[0],earlierstep[2],1],
+                                    [laststep[0],laststep[2],1],
+                                    [ecc_i,porb_found,1]
+                                ])
+                B = numpy.matrix([earlierstep[1],laststep[1],ecc_found])
+                fit,residual,rnk,s = scipy.linalg.lstsq(A,B.T)
+                ehat_prime = fit[0]
+                print('A is ',A)
+                print('B is ',B)
+                #ehat_prime = (ecc_found-laststep[1])/(ecc_i-laststep[0])
+            else:
+                ehat_prime = scipy.nan
+            print('ehat_prime is ',ehat_prime)
+            raise ValueError("solver and errfunc() have found initial values with acceptable results",1,evolution,ehat_prime)
         else:
+            earlierstep = laststep
+            laststep = [ecc_i,ecc_found,porb_found]
             print(difference)
             return difference
-        
+        #TODO make sure last three points aren't all on a line?
     def get_period_range():
         """
         Returns a range of initial orbital periods within which the
@@ -621,6 +642,7 @@ def find_evolution(system,
 
     initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,3]  #TODO make obliq reflect system
     initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
+    initial_eccentricity='solve'
     if solve:
         try:
             if initial_eccentricity == 'solve':
@@ -673,7 +695,7 @@ def find_evolution(system,
                 )
         except ValueError as err:
             if err.args[1] == 1: # This means we actually completed successfully
-                return err.args[2]
+                return err.args[2],err.args[3]
             else:
                 logger.exception('Solver Crashed')
                 raise
@@ -810,10 +832,13 @@ if __name__ == '__main__':
                   'precision']:
         kwargs[param] = getattr(config, param)
 
-    testing = False
-    if testing == False:
+    testing = "Plot"
+    if testing == "False":
         evolution = find_evolution(**kwargs)
         with open(config.output_pickle, 'ab') as outf:
             pickle.dump(evolution, outf)
+    elif testing == "Plot":
+        #Not yet implemented
+        print("to do")
     else:
         test_find_evolution(**kwargs)

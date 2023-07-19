@@ -24,8 +24,36 @@ def get_code_version_str():
         return head_sha + ':dirty'
     return head_sha
 
-def setup_process(config, task='calculate'):
-    """Logging and I/O setup for the current processes."""
+def setup_process(**config):
+    """
+    Logging and I/O setup for the current processes.
+
+    Args (keyword only):
+        std_out_err_fname(str):    Format string for the standard output/error
+            file name with substitutions including any keyword arguments passed
+            to this function, ``now`` which gets replaced by current date/time,
+            ``pid`` which gets replaced by the process ID, ``task`` which
+            gets the value ``'calculate'`` by default but can be overwritten
+            here.
+
+        logging_fname(str):    Format string for the logging file name (see
+            ``std_out_err_fname``).
+
+        fname_datetime_format(str):    The format for the date and time string
+            to be inserted in the file names.
+
+        logging_message_format(str):    The format for the logging messages (see
+            logging module documentation)
+
+        logging_verbosity(str):    The verbosity of logging (see logging module
+            documentation)
+
+        All other keyword arguments are used to substitute into the format
+            strings for the filenames.
+
+    Returns:
+        None
+    """
 
     def ensure_directory(fname):
         """Make sure the directory containing the given name exists."""
@@ -34,14 +62,14 @@ def setup_process(config, task='calculate'):
         if not os.path.exists(dirname):
             os.makedirs(dirname)
 
-    fname_substitutions = dict(
-        now=datetime.now().strftime(config.fname_datetime_format),
-        system=config.system,
-        pid=os.getpid(),
-        task=task
+    if 'task' not in config:
+        config['task'] = 'calculate'
+    config.update(
+        now=datetime.now().strftime(config['fname_datetime_format']),
+        pid=os.getpid()
     )
 
-    std_out_err_fname = config.std_out_err_fname % fname_substitutions
+    std_out_err_fname = config['std_out_err_fname'].format(config)
     ensure_directory(std_out_err_fname)
 
     io_destination = os.open(
@@ -52,7 +80,7 @@ def setup_process(config, task='calculate'):
     os.dup2(io_destination, 1)
     os.dup2(io_destination, 2)
 
-    logging_fname = config.logging_fname % fname_substitutions
+    logging_fname = config['logging_fname'].format(config)
     ensure_directory(logging_fname)
 
     for handler in logging.root.handlers[:]:
@@ -60,9 +88,9 @@ def setup_process(config, task='calculate'):
         handler.close()
     logging_config = dict(
         filename=logging_fname,
-        level=getattr(logging, config.logging_verbosity.upper()),
-        format=config.logging_message_format,
+        level=getattr(logging, config['logging_verbosity'].upper()),
+        format=config['logging_message_format']
     )
-    if config.logging_datetime_format is not None:
-        logging_config['datefmt'] = config.logging_datetime_format
+    if config['logging_datetime_format'] is not None:
+        logging_config['datefmt'] = config['logging_datetime_format']
     logging.basicConfig(**logging_config)

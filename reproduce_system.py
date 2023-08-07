@@ -479,21 +479,24 @@ def find_evolution(system,
                                 ])
                 B = numpy.matrix([earlierstep[1],laststep[1],ecc_found])
                 fit,residual,rnk,s = scipy.linalg.lstsq(A,B.T)
-                ehat_prime = fit[0]
+                ehat_prime = [fit[0],ecc_i]
                 print('A is ',A)
                 print('B is ',B)
-                #ehat_prime = (ecc_found-laststep[1])/(ecc_i-laststep[0])
             else:
-                ehat_prime = scipy.nan
+                ehat_prime = [scipy.nan,scipy.nan]
             print('ehat_prime is ',ehat_prime)
             raise ValueError("solver and errfunc() have found initial values with acceptable results",1,evolution,ehat_prime)
         else:
-            earlierstep = laststep
-            laststep = [ecc_i,ecc_found,porb_found]
+            earlierstep[0] = laststep[0]
+            earlierstep[1] = laststep[1]
+            earlierstep[2] = laststep[2]
+            laststep[0] = ecc_i
+            laststep[1] = ecc_found
+            laststep[2] = porb_found
             print(difference)
             return difference
         #TODO make sure last three points aren't all on a line?
-    def get_period_range():
+    def get_period_range(initial_eccentricity):
         """
         Returns a range of initial orbital periods within which the
         difference between the found and correct final periods crosses
@@ -505,7 +508,7 @@ def find_evolution(system,
         porb_min, porb_max = scipy.nan, scipy.nan
         porb_initial = system.orbital_period.to_value("day")
         #TODO better initial obliq
-        porb = value_finder.try_system([porb_initial,system.eccentricity,3],initial_secondary_angmom,max_age).orbital_period[-1]
+        porb = value_finder.try_system([porb_initial,initial_eccentricity,3],initial_secondary_angmom,max_age).orbital_period[-1]
         if scipy.isnan(porb):
             porb=0.0
         porb_error = porb - system.orbital_period.to_value("day")
@@ -541,7 +544,7 @@ def find_evolution(system,
                 step
             )
             #TODO better initial obliq
-            porb = value_finder.try_system([porb_initial,system.eccentricity,3],
+            porb = value_finder.try_system([porb_initial,initial_eccentricity,3],
                                                     initial_secondary_angmom,
                                                     max_age).orbital_period[-1]
             logger.debug('After evolution: porb = %s', repr(porb))
@@ -642,13 +645,14 @@ def find_evolution(system,
 
     initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,3]  #TODO make obliq reflect system
     initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
-    initial_eccentricity='solve'
+    #initial_eccentricity='solve'
+    error=SimpleNamespace(eccentricity=[scipy.nan],orbital_period=[scipy.nan])
     if solve:
         try:
             if initial_eccentricity == 'solve':
                 scipy.optimize.root(
                     errfunc,
-                    [initial_guess[0],initial_guess[1]],
+                    [initial_guess[0],initial_guess[1]], #TODO: get rid of initial_guess, use independent variables and whatnot
                     method='lm',
                     options={'xtol':0,
                             'ftol':0,
@@ -677,7 +681,8 @@ def find_evolution(system,
                 )
             else:
                 # Just solving for period
-                porb_min, porb_max = get_period_range()
+                porb_min, porb_max = get_period_range(initial_eccentricity)
+                initial_guess[1] = initial_eccentricity
 
                 scipy.optimize.brentq(
                     errfunc,
@@ -699,9 +704,10 @@ def find_evolution(system,
             else:
                 logger.exception('Solver Crashed')
                 raise
-        except RuntimeError as err:
-            logger.exception('Solver failed to converge. Erorr: %s',err)
-            return scipy.nan
+        except RuntimeError as err: # TODO: have a first variable appropriately formatted for all the evolution things
+            logger.exception('Solver failed to converge. Error: %s',err)
+            logger.exception('Here is what we are returning: %s, %s',error,scipy.nan)
+            return error,[scipy.nan,scipy.nan]
     else:
         try:
             return value_finder.try_system(
@@ -716,7 +722,7 @@ def find_evolution(system,
     # If we get to this point, we tried to solve but didn't get a solution
     # for some reason.
     logger.error("Solver failed to converge.")
-    return scipy.nan
+    return error,[scipy.nan,scipy.nan]
 #pylint: enable=too-many-locals
 
 def test_find_evolution_parallel(test_set,**kwargs):
@@ -780,6 +786,20 @@ def test_find_evolution(**kwargs):
     # Save the output to a file.
     numpy.savetxt("test_find_evolution_output_3.txt",output,fmt="%s")
 
+def test_ehatprime(e,**kwargs):
+    logger=logging.getLogger(__name__)
+    kwargs['initial_eccentricity'] = e
+    try:
+        evolution = find_evolution(**kwargs)[0]
+        print('evolution is ',evolution)
+    except:
+        logger=logging.getLogger(__name__)
+        logger.exception('Something went wrong while trying to evolve the system with the given parameters.')
+        logger.exception('Here is what those parameters are: %s',kwargs)
+        raise
+    result_ef = evolution.eccentricity[-1]
+    return result_ef
+
 if __name__ == '__main__':
     config = parse_command_line()
 
@@ -838,7 +858,45 @@ if __name__ == '__main__':
         with open(config.output_pickle, 'ab') as outf:
             pickle.dump(evolution, outf)
     elif testing == "Plot":
-        #Not yet implemented
-        print("to do")
+        # set of e_is to do first
+        e_min = kwargs['system'].eccentricity - 0.3
+        if e_min < 0.0:
+            e_min = 0.0
+        e_max = kwargs['system'].eccentricity + 0.3
+        if e_max > 0.85:
+            e_max = 0.85
+        ei_values = numpy.linspace(e_min,e_max,100)
+        print('ei_values, ',ei_values)
+        #raise ValueError("We're not done yet!")
+        eccf_list = numpy.array(())
+        output=numpy.array(())
+        test_it = partial(test_ehatprime,**kwargs)
+
+        processNum = 16
+        with Pool(processNum,setup_process) as p:
+            output=p.map(test_it,ei_values)
+        #output=test_it(e_min)
+        
+        print('Full output is ', output)
+        for i in range(len(output)):
+            eccf_list = numpy.append(eccf_list,output[i])
+        new_eccf_list = eccf_list[::10]
+        print('eccf_list is ',eccf_list)
+        print('new_eccf_list is ',new_eccf_list)
+
+        # Now we're going to feed all of these into the solver
+        kwargs['initial_eccentricity'] = 'solve'
+        points = numpy.array(()) #TODO This part should also be parallel processed
+        ehat_prime_values = numpy.array(())
+        for e in new_eccf_list:
+            kwargs['system'].eccentricity = e
+            evolution,ehat_prime = find_evolution(**kwargs)
+            ecc_found = evolution.eccentricity[-1]
+            ecc_i = ehat_prime[1]
+            points = numpy.append(points,[ecc_i,ecc_found])
+            ehat_prime_values = numpy.append(ehat_prime_values,ehat_prime[0])
+        print(points)
+        print(ehat_prime_values)
+        print("Finished!")
     else:
         test_find_evolution(**kwargs)

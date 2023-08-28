@@ -641,6 +641,10 @@ class InitialValueFinder:
             )
 
         final_state=binary.final_state()
+        logging.getLogger(__name__).debug('Final state age: %s, ',
+                                          repr(final_state.age))
+        logging.getLogger(__name__).debug('Target state age: %s, ',
+                                            repr(self.target_state.age))
         assert(final_state.age==self.target_state.age)
 
         evolution = self._format_evolution(binary,

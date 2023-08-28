@@ -11,12 +11,13 @@ import pickle
 #from scipy import optimize
 import scipy
 import numpy
-from astropy import units
+from astropy import units, constants
 from configargparse import ArgumentParser, DefaultsFormatter
 
 from stellar_evolution.library_interface import MESAInterpolator
 from stellar_evolution.manager import StellarEvolutionManager
 from orbital_evolution.transformations import phase_lag
+from basic_utils import calc_orbital_angular_momentum,calc_semimajor,calc_orbital_frequency
 
 from orbital_evolution.command_line_util import\
     add_binary_config,\
@@ -413,6 +414,10 @@ def find_evolution(system,
         some specified initial conditions.
         """
 
+        porb_true = system.orbital_period.to_value("day")
+        ecc_true  = system.eccentricity
+        #obliq_true = system.obliquity
+
         if solve_type == "porb":
             error_out = scipy.nan
             porb_i = variable_conditions
@@ -421,21 +426,25 @@ def find_evolution(system,
         else:
             error_out = [scipy.nan,scipy.nan]
             if solve_type == "ecc":
-                porb_i = variable_conditions[0]
+                dL = variable_conditions[0]
                 ecc_i  = variable_conditions[1]
                 obliq_i = fixed_conditions
-            elif solve_type == "obliq":
+                print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)
+                porb_i = unchange_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)[0]
+            elif solve_type == "obliq": #TODO: change of variables?
                 porb_i = variable_conditions[0]
                 ecc_i  = fixed_conditions
                 obliq_i = variable_conditions[1]
             else:
                 raise ValueError("Invalid solve type",0)
+            
+        logger.debug('Here are the input values the solver is trying.')
+        logger.debug('porb_i: %f',porb_i)
+        logger.debug('ecc_i: %f',ecc_i)
+        logger.debug('obliq_i: %f',obliq_i)
+        logger.debug('dL: %f',dL)
         
         initial_conditions = [porb_i,ecc_i,obliq_i]
-
-        porb_true = system.orbital_period
-        ecc_true  = system.eccentricity
-        #obliq_true = system.obliquity
 
         # Sanity check
         if (ecc_i < 0 or ecc_i >= 1) or (porb_i < 0 or porb_i > 100) or (obliq_i < 0 or obliq_i >180):
@@ -456,9 +465,9 @@ def find_evolution(system,
         obliq_found = scipy.nan
 
         logger.debug('Found porb, ecc, obliq: %f, %f, %f',porb_found,ecc_found,obliq_found)
-        logger.debug('Target porb, ecc, obliq: %f, %f, OBLIQUITY NOT YET HANDLED',porb_true.to_value("day"),ecc_true)
+        logger.debug('Target porb, ecc, obliq: %f, %f, OBLIQUITY NOT YET HANDLED',porb_true,ecc_true)
 
-        porb_diff = porb_found-porb_true.to_value("day")
+        porb_diff = porb_found-porb_true
         ecc_diff = ecc_found-ecc_true
 
         logger.debug('porb tolerance vs porb diff: %f, %f',orbital_period_tolerance,porb_diff)
@@ -514,7 +523,7 @@ def find_evolution(system,
         period_search_factor = 1.1
         max_porb_initial = 50.0
         porb_min, porb_max = scipy.nan, scipy.nan
-        porb_initial = system.orbital_period.to_value("day")
+        porb_initial = system.orbital_period.to_value("day") * 3 #TODO: test this
         #TODO better initial obliq
         try:
             porb = value_finder.try_system([porb_initial,initial_eccentricity,3],initial_secondary_angmom,max_age).orbital_period[-1]
@@ -666,16 +675,27 @@ def find_evolution(system,
     )
 
     initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,3]  #TODO make obliq reflect system
+    logger.debug('Old version of initial guess: %s',repr(initial_guess))
+    #initial_guess = [10,0.3,3]
+    newe = system.eccentricity*2
+    if newe>0.8:
+        newe=0.8
+    initial_guess = [system.orbital_period.to_value("day")*2,newe,3]
+    logger.debug('New version of initial guess: %s',repr(initial_guess))
     initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
     #initial_eccentricity='solve'
     error=SimpleNamespace(eccentricity=[scipy.nan],orbital_period=[scipy.nan])
     if solve:
         try:
-            if initial_eccentricity == 'solve':
+            if initial_eccentricity == 'solve': #TODO: make the order of p and e in (un)change_variables() match their order in other places
+                print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,system.eccentricity,system.orbital_period.to_value("day"),initial_guess[1],initial_guess[0])
+                pguess,eguess = change_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,system.eccentricity,system.orbital_period.to_value("day"),initial_guess[1],initial_guess[0])
+                initial_guess[0] = pguess
+                initial_guess[1] = eguess
                 scipy.optimize.root(
                     errfunc,
                     [initial_guess[0],initial_guess[1]], #TODO: get rid of initial_guess, use independent variables and whatnot
-                    method='lm',
+                    method='hybr',
                     options={'xtol':0,
                             'ftol':0,
                             'maxiter':max_iterations},
@@ -690,7 +710,7 @@ def find_evolution(system,
                 scipy.optimize.root(
                     errfunc,
                     [initial_guess[0],initial_guess[2]],
-                    method='lm',
+                    method='hybr',
                     options={'xtol':0,
                             'ftol':0,
                             'maxiter':max_iterations},
@@ -751,6 +771,75 @@ def find_evolution(system,
     logger.error("Solver failed to converge.")
     return error,[scipy.nan,scipy.nan]
 #pylint: enable=too-many-locals
+
+def change_variables(m1,m2,ef,pf,ei,pi):
+    semimajorF = calc_semimajor(m1,m2,pf)
+    angmomF=calc_orbital_angular_momentum(m1,m2,semimajorF,ef)
+
+    semimajorI = calc_semimajor(m1,m2,pi)
+    angmomI=calc_orbital_angular_momentum(m1,m2,semimajorI,ei)
+
+    dL = angmomF-angmomI
+
+    return dL,ei
+
+def unchange_variables(m1,m2,ef,pf,ei,dL):
+    semimajorF = calc_semimajor(m1,m2,pf)
+    angmomF=calc_orbital_angular_momentum(m1,m2,semimajorF,ef)
+
+    angmomI = angmomF-dL
+    pi = angular_momentum_to_p(m1,m2,ei,angmomI)
+
+    return pi,ei
+
+def angular_momentum_to_p(m1, m2, eccentricity, angmom):
+    #(angmom * (m1 + m2)) / (m1 * m2 * (1.0 - eccentricity**2)**0.5) =  ( ( semimajor * units.R_sun * constants.G.to(units.R_sun**3 / (units.M_sun * units.day**2)) * (m1 + m2) * units.M_sun )**0.5 ).to(1 / units.day).value
+
+    denom = (constants.G.to(units.R_sun**3 / (units.M_sun * units.day**2)) * (m1 + m2) * units.M_sun)
+    semimajor = ((angmom * (m1 + m2) * (units.R_sun**2 / units.day) / (m1 * m2 * (1.0 - eccentricity**2)**0.5)))**2 / denom
+    semimajor = semimajor.to(units.R_sun).value
+
+    p = semimajor_to_period(m1, m2, semimajor)
+
+    return p
+
+#def angular_momentum_to_e(m1, m2, semimajor, angmom):
+#    return (
+#        (
+#            1.0 - (
+#                    angmom * (m1 + m2)
+#                    /
+#                    (m1 * m2 * semimajor**2 * calc_orbital_frequency(m1, m2, semimajor))
+#                )**2
+#        )**0.5
+#    )
+
+def semimajor_to_period(m1, m2, semimajor):
+
+    denom = constants.G.to(units.m**3 / (units.M_sun * units.day**2)) * (m1 + m2) * units.M_sun
+    orbital_period = ( ( (semimajor * units.R_sun).to(units.m)**3.0 * (4.0 * numpy.pi**2) / denom )**(1.0 / 2.0) ).to(units.day).value
+    return orbital_period
+
+#def orbfreq_to_semimaj(m1, m2, orbital_frequency):
+#    semimajor = ( (constants.G * (m1 + m2) * units.M_sun / (orbital_frequency * (1 / units.day))**2 )**(1.0 / 3.0) ).to(units.R_sun).value
+#    return semimajor
+
+# def find_guess_period(m1, m2, period, e_old, e_new):
+#     """
+#     Find the orbital period that would give the given angular momentum
+#     for the given masses and eccentricities.
+#     """
+
+#     semimajor_old = calc_semimajor(m1,m2,period)
+#     angmom=calc_orbital_angular_momentum(m1,m2,semimajor_old,e_old)
+
+#     denom = (constants.G.to(units.R_sun**3 / (units.M_sun * units.day**2)) * (m1 + m2) * units.M_sun)
+#     semimajor_new = ((angmom * (m1 + m2) * (units.R_sun**2 / units.day) / (m1 * m2 * (1.0 - e_new**2)**0.5)))**2 / denom
+#     semimajor_new = semimajor_new.to(units.R_sun).value
+
+#     guess_period = semimajor_to_period(m1, m2, semimajor_new)
+
+#     return guess_period
 
 def test_find_evolution_parallel(test_set,**kwargs):
 
@@ -919,6 +1008,11 @@ if __name__ == '__main__':
                 eccf_list = numpy.append(eccf_list,output[i])
         new_eccf_list = eccf_list[::10]
         #new_eccf_list = numpy.array(([0.0,0.00051171,0.00102366,0.00153612,0.00204937,0.00256379,0.00307979,0.00359789,0.00411873,0.00464744]))
+        #new_eccf_list = numpy.array(([0.0,0.00095875,0.00192265,0.00289841,0.0041469,0.00589061, 0.0083251,0.0117726,0.0175089,0.02718144]))
+        #new_eccf_list = numpy.array(([0.,0.07298025,0.14444735,0.21265355,0.2856158,0.3490391,0.40744892,0.45674613,0.50566563]))
+        #new_eccf_list = numpy.array(([0.0,0.07127826,0.14076185,0.20645556,0.26625803,0.32296499,0.37638409,0.42099214,0.46187062,0.498873]))
+        #new_eccf_list = numpy.array(([0.0,0.06978789,0.13766322,0.20162655,0.26790725,0.32907037,0.38097794,0.42695883,0.4657867,0.50031818]))
+        new_eccf_list = numpy.array(([0.0,0.00095875,0.00192265,0.00289841,0.0041469,0.00589061,0.0083251,0.0117726,0.0175089,0.02718144]))
         print('eccf_list is ',eccf_list)
         print('new_eccf_list is ',new_eccf_list)
 

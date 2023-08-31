@@ -443,14 +443,48 @@ def find_evolution(system,
         logger.debug('ecc_i: %f',ecc_i)
         logger.debug('obliq_i: %f',obliq_i)
         logger.debug('dL: %f',dL)
+        print('Here are the input values the solver is trying.')
+        print('porb_i: ',porb_i)
+        print('ecc_i: ',ecc_i)
+        print('obliq_i: ',obliq_i)
+        print('dL: ',dL)
         
         initial_conditions = [porb_i,ecc_i,obliq_i]
 
         # Sanity check
-        if (ecc_i < 0 or ecc_i >= 1) or (porb_i < 0 or porb_i > 100) or (obliq_i < 0 or obliq_i >180):
+        #if not numpy.isnan(laststep[0]):
+        #    ecc_last=laststep[0]-ecc_true
+        #else:
+        #    ecc_last=1
+        #esign=ecc_last/abs(ecc_last)
+        #if not numpy.isnan(laststep[2]):
+        #    p_last = laststep[2]-porb_true
+        #else:
+        #    p_last=porb_true
+        if (ecc_i < 0 or ecc_i > 0.8) or (porb_i < 0) or (obliq_i < 0 or obliq_i > 180):
             logger.warning('Invalid Initial Values')
             logger.warning('Initial porb, ecc, obliq: %f, %f, %f',porb_i,ecc_i,obliq_i)
-            return error_out
+            print('Invalid Initial Values')
+            print('Initial porb, ecc, obliq: ',porb_i,ecc_i,obliq_i)
+            if solve_type == "porb":
+                logger.debug('Returning the following value to the solver: %f',porb_i.real-porb_true)
+                print('Returning the following value to the solver: ',porb_i.real-porb_true)
+                logger.debug('Target porb: %f',porb_true)
+                print('Target porb: ',porb_true)
+                return porb_i.real-porb_true
+            elif solve_type == "ecc":
+                logger.debug('Returning the following values to the solver: %s',repr([porb_i.real-porb_true,ecc_i-ecc_true]))
+                print('Returning the following values to the solver: ',[porb_i.real-porb_true,ecc_i-ecc_true])
+                logger.debug('Target porb, ecc: %f, %f',porb_true,ecc_true)
+                print('Target porb, ecc: ',porb_true,ecc_true)
+                #logger.debug('Potential alternate return to solver: ',[p_last,esign])
+                return [porb_i.real-porb_true,ecc_i-ecc_true]
+            else:
+                logger.debug('Returning the following values to the solver: %s',repr([porb_i.real-porb_true,obliq_i-3.0]))
+                print('Returning the following values to the solver: ',[porb_i.real-porb_true,obliq_i-3.0])
+                logger.debug('Target porb, obliq: %f, OBLIQUITY NOT YET HANDLED',porb_true)
+                print('Target porb, obliq: ',porb_true,' OBLIQUITY NOT YET HANDLED')
+                return [porb_i.real-porb_true,obliq_i-3.0] #TODO
 
         try:
             evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom,max_age)
@@ -473,9 +507,12 @@ def find_evolution(system,
         logger.debug('porb tolerance vs porb diff: %f, %f',orbital_period_tolerance,porb_diff)
         logger.debug('ecc tolerance vs ecc diff: %f, %f',eccentricity_tolerance,ecc_diff)
 
-        if numpy.logical_or(numpy.isnan(porb_found),(numpy.isnan(ecc_found))):
-            logger.warning('Binary system was destroyed')
-            return error_out
+        if numpy.isnan(porb_found):
+            logger.warning('porb_found is nan')
+            porb_found = 0.0
+        if numpy.isnan(ecc_found):
+            logger.warning('ecc_found is nan')
+            ecc_found = 0.0
 
         if solve_type == "porb":
             difference = porb_diff
@@ -677,9 +714,9 @@ def find_evolution(system,
     initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,3]  #TODO make obliq reflect system
     logger.debug('Old version of initial guess: %s',repr(initial_guess))
     #initial_guess = [10,0.3,3]
-    newe = system.eccentricity*2
-    if newe>0.8:
-        newe=0.8
+    newe = 0.5#system.eccentricity*2
+    #if newe>0.8:
+    #    newe=0.8
     initial_guess = [system.orbital_period.to_value("day")*2,newe,3]
     logger.debug('New version of initial guess: %s',repr(initial_guess))
     initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
@@ -690,9 +727,9 @@ def find_evolution(system,
             if initial_eccentricity == 'solve': #TODO: make the order of p and e in (un)change_variables() match their order in other places
                 print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,system.eccentricity,system.orbital_period.to_value("day"),initial_guess[1],initial_guess[0])
                 pguess,eguess = change_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,system.eccentricity,system.orbital_period.to_value("day"),initial_guess[1],initial_guess[0])
-                initial_guess[0] = pguess
+                initial_guess[0] = 0#pguess
                 initial_guess[1] = eguess
-                scipy.optimize.root(
+                print(scipy.optimize.root(
                     errfunc,
                     [initial_guess[0],initial_guess[1]], #TODO: get rid of initial_guess, use independent variables and whatnot
                     method='hybr',
@@ -705,7 +742,7 @@ def find_evolution(system,
                             eccentricity_tolerance,
                             obliquity_tolerance,
                             "ecc")
-                )
+                ) )
             elif initial_obliquity == 'solve':
                 scipy.optimize.root(
                     errfunc,
@@ -772,7 +809,7 @@ def find_evolution(system,
     return error,[scipy.nan,scipy.nan]
 #pylint: enable=too-many-locals
 
-def change_variables(m1,m2,ef,pf,ei,pi):
+def change_variables(m1,m2,ef,pf,ei,pi): #TODO: documentation
     semimajorF = calc_semimajor(m1,m2,pf)
     angmomF=calc_orbital_angular_momentum(m1,m2,semimajorF,ef)
 
@@ -793,8 +830,6 @@ def unchange_variables(m1,m2,ef,pf,ei,dL):
     return pi,ei
 
 def angular_momentum_to_p(m1, m2, eccentricity, angmom):
-    #(angmom * (m1 + m2)) / (m1 * m2 * (1.0 - eccentricity**2)**0.5) =  ( ( semimajor * units.R_sun * constants.G.to(units.R_sun**3 / (units.M_sun * units.day**2)) * (m1 + m2) * units.M_sun )**0.5 ).to(1 / units.day).value
-
     denom = (constants.G.to(units.R_sun**3 / (units.M_sun * units.day**2)) * (m1 + m2) * units.M_sun)
     semimajor = ((angmom * (m1 + m2) * (units.R_sun**2 / units.day) / (m1 * m2 * (1.0 - eccentricity**2)**0.5)))**2 / denom
     semimajor = semimajor.to(units.R_sun).value
@@ -803,43 +838,10 @@ def angular_momentum_to_p(m1, m2, eccentricity, angmom):
 
     return p
 
-#def angular_momentum_to_e(m1, m2, semimajor, angmom):
-#    return (
-#        (
-#            1.0 - (
-#                    angmom * (m1 + m2)
-#                    /
-#                    (m1 * m2 * semimajor**2 * calc_orbital_frequency(m1, m2, semimajor))
-#                )**2
-#        )**0.5
-#    )
-
 def semimajor_to_period(m1, m2, semimajor):
-
     denom = constants.G.to(units.m**3 / (units.M_sun * units.day**2)) * (m1 + m2) * units.M_sun
     orbital_period = ( ( (semimajor * units.R_sun).to(units.m)**3.0 * (4.0 * numpy.pi**2) / denom )**(1.0 / 2.0) ).to(units.day).value
     return orbital_period
-
-#def orbfreq_to_semimaj(m1, m2, orbital_frequency):
-#    semimajor = ( (constants.G * (m1 + m2) * units.M_sun / (orbital_frequency * (1 / units.day))**2 )**(1.0 / 3.0) ).to(units.R_sun).value
-#    return semimajor
-
-# def find_guess_period(m1, m2, period, e_old, e_new):
-#     """
-#     Find the orbital period that would give the given angular momentum
-#     for the given masses and eccentricities.
-#     """
-
-#     semimajor_old = calc_semimajor(m1,m2,period)
-#     angmom=calc_orbital_angular_momentum(m1,m2,semimajor_old,e_old)
-
-#     denom = (constants.G.to(units.R_sun**3 / (units.M_sun * units.day**2)) * (m1 + m2) * units.M_sun)
-#     semimajor_new = ((angmom * (m1 + m2) * (units.R_sun**2 / units.day) / (m1 * m2 * (1.0 - e_new**2)**0.5)))**2 / denom
-#     semimajor_new = semimajor_new.to(units.R_sun).value
-
-#     guess_period = semimajor_to_period(m1, m2, semimajor_new)
-
-#     return guess_period
 
 def test_find_evolution_parallel(test_set,**kwargs):
 
@@ -975,7 +977,7 @@ if __name__ == '__main__':
                   'precision']:
         kwargs[param] = getattr(config, param)
 
-    testing = "Plot"
+    testing = "False"
     if testing == "False": #TODO: calculation time limit
         evolution = find_evolution(**kwargs)
         with open(config.output_pickle, 'ab') as outf:
@@ -1009,10 +1011,10 @@ if __name__ == '__main__':
         new_eccf_list = eccf_list[::10]
         #new_eccf_list = numpy.array(([0.0,0.00051171,0.00102366,0.00153612,0.00204937,0.00256379,0.00307979,0.00359789,0.00411873,0.00464744]))
         #new_eccf_list = numpy.array(([0.0,0.00095875,0.00192265,0.00289841,0.0041469,0.00589061, 0.0083251,0.0117726,0.0175089,0.02718144]))
-        #new_eccf_list = numpy.array(([0.,0.07298025,0.14444735,0.21265355,0.2856158,0.3490391,0.40744892,0.45674613,0.50566563]))
+        ####new_eccf_list = numpy.array(([0.,0.07298025,0.14444735,0.21265355,0.2856158,0.3490391,0.40744892,0.45674613,0.50566563]))
         #new_eccf_list = numpy.array(([0.0,0.07127826,0.14076185,0.20645556,0.26625803,0.32296499,0.37638409,0.42099214,0.46187062,0.498873]))
         #new_eccf_list = numpy.array(([0.0,0.06978789,0.13766322,0.20162655,0.26790725,0.32907037,0.38097794,0.42695883,0.4657867,0.50031818]))
-        new_eccf_list = numpy.array(([0.0,0.00095875,0.00192265,0.00289841,0.0041469,0.00589061,0.0083251,0.0117726,0.0175089,0.02718144]))
+        #new_eccf_list = numpy.array(([0.0,0.00095875,0.00192265,0.00289841,0.0041469,0.00589061,0.0083251,0.0117726,0.0175089,0.02718144]))
         print('eccf_list is ',eccf_list)
         print('new_eccf_list is ',new_eccf_list)
 

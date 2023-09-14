@@ -98,6 +98,7 @@ def setup_process(**config):
     )
     if config.get('logging_datetime_format') is not None:
         logging_config['datefmt'] = config['logging_datetime_format']
+
     logging.basicConfig(**logging_config)
 
 def setup_process_map(config):

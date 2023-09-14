@@ -46,7 +46,11 @@ class MultiPickle:
                 what is pickled.
         """
 
-        result = dict(vars(config))
+        if isinstance(config, dict):
+            result = dict(config)
+        else:
+            result = dict(vars(config))
+
         for arg in self._ignore_config:
             if arg in result:
                 del result[arg]
@@ -157,8 +161,15 @@ class MultiPickle:
                     if self._compare_config(check_config, pickled_config):
                         self._logger.debug('Found matching pickled results.')
                         return tuple(unpickler.load() for _ in range(nobjects))
+                    self._logger.debug(
+                        'Skipping over %s pickled objects.',
+                        repr(nobjects)
+                    )
                     for _ in range(nobjects):
-                        unpickler.load()
+                        self._logger.debug('Skipping from %s (%s)',
+                                           repr(unpickler),
+                                           type(unpickler))
+                        print(repr(unpickler.load()))
         except EOFError:
             self._logger.debug('None of the pickled results match specfied '
                                'configuration.')

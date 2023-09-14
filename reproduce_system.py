@@ -307,7 +307,7 @@ def find_evolution(system,
                    obliquity_tolerance=1e-6,
                    period_search_factor=2.0,
                    scaled_period_guess=1.0,
-                   eccentricity_upper_limit=0.8,
+                   eccentricity_upper_limit=0.8, #TODO: Currently unused. Pretty obvious how to use it, though.
                    solve=True,
                    max_iterations=49,
                    secondary_is_star=None,
@@ -532,7 +532,7 @@ def find_evolution(system,
                                     [ecc_i,porb_found,1]
                                 ])
                 B = numpy.matrix([earlierstep[1],laststep[1],ecc_found])
-                fit,residual,rnk,s = scipy.linalg.lstsq(A,B.T)
+                fit = scipy.linalg.lstsq(A,B.T)[0]
                 ehat_prime = [fit[0],ecc_i]
                 print('A is ',A)
                 print('B is ',B)

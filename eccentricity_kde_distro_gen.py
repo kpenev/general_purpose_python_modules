@@ -212,18 +212,18 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
                 numpy.isfinite(self._kernel['sin'].support()).any(),
                 numpy.isfinite(self._kernel['cos'].support()).any()
         ):
-            ranges = dict()
+            ranges = {}
             for component in ['sin', 'cos']:
-                ranges[component] = dict(
-                    min=(self._samples[component]
-                         +
-                         self._kernel[component].support()[0]),
-                    max=(self._samples[component]
-                         +
-                         self._kernel[component].support()[1]),
+                ranges[component] = {
+                    'min': (self._samples[component]
+                            +
+                            self._kernel[component].support()[0]),
+                    'max': (self._samples[component]
+                            +
+                            self._kernel[component].support()[1]),
 
-                )
-            corner_e2 = numpy.concatenate(
+                }
+            corner_e2 = numpy.concatenate([
                 (
                     numpy.square(ranges['sin'][sin_bound])
                     +
@@ -231,7 +231,7 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
                 )
                 for sin_bound in ['min', 'max']
                 for cos_bound in ['min', 'max']
-            )
+            ])
 
             if numpy.logical_and(
                 numpy.logical_and(ranges['sin']['min'] <= 0,
@@ -250,36 +250,35 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
     def _get_w_integration_points(self):
         """Return the ``points`` argument to use for periapsis integrals."""
 
-        means = {
-            component: numpy.mean(self._samples[component])
-            for component in ['sin', 'cos']
-        }
-        stddevs = {
-            component: numpy.std(self._samples[component])
-            for component in ['sin', 'cos']
-        }
-        return (
+#        means = {
+#            component: numpy.mean(self._samples[component])
+#            for component in ['sin', 'cos']
+#        }
+#        stddevs = {
+#            component: numpy.std(self._samples[component])
+#            for component in ['sin', 'cos']
+#        }
+        return [
             numpy.arctan2(esinw, ecosw)
-            for esinw in [means['sin'] - stddevs['sin'],
-                          means['sin'],
-                          means['sin'] + stddevs['sin']]
-            for ecosw in [means['cos'] - stddevs['cos'],
-                          means['cos'],
-                          means['cos'] + stddevs['cos']]
-        )
+            for esinw in numpy.quantile(self._samples['sin'],
+                                        numpy.linspace(0, 1, 5))
+            for ecosw in numpy.quantile(self._samples['cos'],
+                                        numpy.linspace(0, 1, 5))
+        ]
 
 
     def _kernel_arg(self, e_component, which):
         """Get difference between samples (inner index) and x (outer index)."""
 
         rhs, lhs = numpy.meshgrid(self._samples[which], e_component)
+
         return numpy.squeeze(lhs - rhs)
 
 
-    def _pdf_integrand(self, eccentricity, periapsis):
+    def _pdf_integrand(self, periapsis, eccentricity):
         """The function to integrate over periapsis to get PDF(e)."""
 
-        numpy.average(
+        result = numpy.average(
             self._kernel['sin'].pdf(
                 self._kernel_arg(eccentricity * numpy.sin(periapsis), 'sin')
             )
@@ -290,6 +289,7 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
             axis=-1,
             weights=self._weights
         )
+        return result
 
 
     def _calculate_pdf(self, eccentricity):
@@ -298,13 +298,16 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
         if eccentricity < 0 or eccentricity > 1:
             return 0.0
 
-        return quad(
+        result = quad(
             self._pdf_integrand,
-            0,
-            2.0 * numpy.pi,
+            -numpy.pi,
+            numpy.pi,
             (eccentricity,),
-            points=self._w_integration_points
-        )
+            points=self._w_integration_points,
+            limit=500
+        )[0] / self._norm
+        print(f'PDF({eccentricity}) = {result}')
+        return result
 
 
     #False positive, kernel accessed through locals()
@@ -352,9 +355,9 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
             None
         """
 
-        self._kernel_config = dict()
-        self._kernel = dict()
-        self._samples = dict()
+        self._kernel_config = {}
+        self._kernel = {}
+        self._samples = {}
         self._w_integration_points = []
 
         for component in ['sin', 'cos']:
@@ -368,7 +371,7 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
                 self._kernel[component] = kernel
 
             self._samples[component] = numpy.ravel(
-                locals()['e' + component + 'wsamples']
+                locals()['e' + component + 'w_samples']
             )
 
         if uniform_e_samples:
@@ -377,16 +380,48 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
                 +
                 numpy.square(ecosw_samples)
             )
+#            self._norm = self._weights.size / numpy.sum(self._weights)
         else:
             self._weights = None
+#            self._norm = self._samples['sin'].size()
 
         self._w_integration_points = self._get_w_integration_points()
+
+        print(f'W integration points: {self._w_integration_points!r}')
+
+        self._norm = 1.0
+        print(
+            'Norm poinst: '
+            +
+            repr(
+                numpy.quantile(
+                    numpy.sqrt(esinw_samples**2 + ecosw_samples**2),
+                    [0.025, 0.5, 0.975]
+                )
+            )
+        )
+        self._norm = quad(
+            self._calculate_pdf,
+            0,
+            1,
+            points=numpy.quantile(
+                numpy.sqrt(esinw_samples**2 + ecosw_samples**2),
+                [0.025, 0.5, 0.975]
+            ),
+            epsrel=1e-3,
+            limit=500
+        )
+
+        print(f'Eccentricity distribution norm: {self._norm!r}')
+
+        self._norm = self._norm[0]
 
         support_lower, support_upper = self._get_support()
         super().__init__(a=support_lower,
                          b=support_upper,
                          name="EccentricityDistro",
                          **kwargs)
+        self._pdf = numpy.vectorize(self._calculate_pdf, otypes=[float])
     #pylint: enable=unused-argument
 
 #pylint: enable=invalid-name
@@ -394,23 +429,26 @@ class eccentricity_noncircular_kde_distro_gen(stats.rv_continuous):
 
 
 if __name__ == '__main__':
-    val=0.05
-    unc=0.001
-    e_distro = eccentricity_circular_kde_distro_gen([0.0, val], unc)
+    e_distro = eccentricity_noncircular_kde_distro_gen(
+        esinw_samples=[0.0, 0.05, 0.0, 0.05],
+        ecosw_samples=[0.0, 0.0, 0.005, 0.005],
+        sin_kernel=stats.norm(0.0, 0.01),
+        cos_kernel=stats.norm(0.0, 0.001),
+    )
 
-    plot_x = numpy.linspace(0.0, val + 5.0 * unc, 1000)
-    pyplot.plot(
+    plot_x = numpy.linspace(0.0, 0.08, 1000)
+    pyplot.semilogy(
         plot_x,
         e_distro.pdf(plot_x),
         label='e-distro 1 PDF'
     )
 
-    pyplot.plot(
-        plot_x,
-        e_distro.cdf(plot_x),
-        label='e-distro CDF'
-    )
-    pyplot.axhline(y=1)
+#    pyplot.plot(
+#        plot_x,
+#        e_distro.cdf(plot_x),
+#        label='e-distro CDF'
+#    )
+#    pyplot.axhline(y=1)
 
 #    pyplot.plot(
 #        plot_x,

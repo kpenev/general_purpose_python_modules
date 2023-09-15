@@ -169,7 +169,7 @@ class MultiPickle:
                         self._logger.debug('Skipping from %s (%s)',
                                            repr(unpickler),
                                            type(unpickler))
-                        print(repr(unpickler.load()))
+                        unpickler.load()
         except EOFError:
             self._logger.debug('None of the pickled results match specfied '
                                'configuration.')

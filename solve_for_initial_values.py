@@ -92,6 +92,7 @@ class InitialValueFinder:
 
         #False positive
         #pylint: disable=no-member
+        logger = logging.getLogger(__name__)
         star = EvolvingStar(
             mass=mass.to_value(units.M_sun),
             metallicity=feh,
@@ -106,6 +107,7 @@ class InitialValueFinder:
         star.select_interpolation_region(star.core_formation_age()
                                          if interpolation_age is None else
                                          interpolation_age)
+        logger.debug('By the way, the interpolation age is %s', repr(interpolation_age))
         if dissipation is not None:
             star.set_dissipation(zone_index=0, **dissipation)
         return star
@@ -116,6 +118,9 @@ class InitialValueFinder:
         mprimary = getattr(self.system,
                            'Mprimary',
                            self.system.primary_mass)
+        
+        logger = logging.getLogger(__name__)
+        logger.debug('The dissipation we are setting for the primary is %s', repr(self.configuration['dissipation']['primary']))
 
         if self.primary_star:
             return self._create_star(
@@ -140,13 +145,17 @@ class InitialValueFinder:
         )
 
 
-    def _create_secondary(self):
+    def _create_secondary(self,startFromDiskDissipationAge=True):
         """Create the two objects comprising the system to evolve."""
 
         msecondary = getattr(self.system,
                              'Msecondary',
                              self.system.secondary_mass)
 
+        logger = logging.getLogger(__name__)
+        logger.debug('The dissipation we are setting for the secondary is %s', repr(self.configuration['dissipation']['secondary']))
+
+        interpolation_age = self.configuration['disk_dissipation_age'] if startFromDiskDissipationAge else None
         if self.secondary_star:
             return self._create_star(
                 msecondary,
@@ -160,7 +169,7 @@ class InitialValueFinder:
                 diff_rot_coupling_timescale=self.configuration[
                     'secondary_core_envelope_coupling_timescale'
                 ],
-                interpolation_age=self.configuration['disk_dissipation_age']
+                interpolation_age=interpolation_age
             )
 
         return self._create_planet(
@@ -203,6 +212,9 @@ class InitialValueFinder:
 
         #False positive
         #pylint: disable=no-member
+
+        logger = logging.getLogger(__name__)
+
         binary = Binary(
             primary=primary,
             secondary=secondary,
@@ -505,7 +517,9 @@ class InitialValueFinder:
     def get_secondary_initial_angmom(self, **evolve_kwargs):
         """Return the angular momentum of the secondary when binary forms."""
 
-        secondary = self._create_secondary()
+        logger = logging.getLogger(__name__)
+
+        secondary = self._create_secondary(False)
 
         if not self.secondary_star:
             return (
@@ -551,7 +565,7 @@ class InitialValueFinder:
             **self._get_combined_evolve_args(evolve_kwargs)
         )
         final_state = binary.final_state()
-        logging.getLogger(__name__).debug(
+        logger.debug(
             'Initial angmom getter final state: %s, ',
             repr(final_state)
         )
@@ -575,7 +589,7 @@ class InitialValueFinder:
 
         return result
     
-    def try_system(self,initial_conditions,initial_secondary_angmom,max_age=None):
+    def try_system(self,initial_conditions,initial_secondary_angmom):
         """
         Return the evolution matching the given system configuration.
 
@@ -597,16 +611,18 @@ class InitialValueFinder:
         initial_eccentricity=initial_conditions[1]
         initial_obliquity=initial_conditions[2]
 
+        logger = logging.getLogger(__name__)
+
         primary = self._create_primary()
         if not primary.core_inertia(self.configuration['disk_dissipation_age']) > 0:
-            logging.getLogger(__name__).error(
+            logger.error(
                 'Reported primary core inertia at disk dissipation age: %s, ',
                 repr(primary.core_inertia(self.configuration['disk_dissipation_age']))
             )
             raise ValueError("Primary core inertia is zero. Primary has not formed.",0)
         secondary = self._create_secondary()
         if not secondary.core_inertia(self.configuration['disk_dissipation_age']) > 0:
-            logging.getLogger(__name__).error(
+            logger.error(
                 'Reported secondary core inertia at disk dissipation age: %s, ',
                 repr(secondary.core_inertia(self.configuration['disk_dissipation_age']))
             )
@@ -624,13 +640,10 @@ class InitialValueFinder:
             initial_secondary_angmom=initial_secondary_angmom
         )
 
-        if max_age is None:
-            if isinstance(primary, EvolvingStar):
-                max_age = primary.lifetime()
-            else:
-                max_age = (self.target_state.age).to(units.Gyr).value
-        else:
-            max_age = max_age.to(units.Gyr).value
+        #if max_age is None:
+        max_age = self.target_state.age
+        #else:
+        #    max_age = max_age.to(units.Gyr).value
 
         binary.evolve(
             max_age,
@@ -641,18 +654,80 @@ class InitialValueFinder:
             )
 
         final_state=binary.final_state()
-        logging.getLogger(__name__).debug('Final state age: %s, ',
+        logger.debug('Final state age: %s, ',
                                           repr(final_state.age))
-        logging.getLogger(__name__).debug('Target state age: %s, ',
+        logger.debug('Target state age: %s, ',
                                             repr(self.target_state.age))
-        assert(final_state.age==self.target_state.age)
+        logger.debug('Initial eccentricity: %s, ',
+                                            repr(initial_eccentricity))
+        logger.debug('Final eccentricity: %s, ',
+                                            repr(final_state.eccentricity))
+        logger.debug('Initial period: %s, ',
+                                            repr(initial_orbital_period))
 
         evolution = self._format_evolution(binary,
                                            self.interpolator,
                                            self.secondary_star)
+
+        logger.debug('Final period: %s, ',
+                                            repr(evolution.orbital_period[-1]))
+        assert(final_state.age==self.target_state.age)
 
         primary.delete()
         secondary.delete()
         binary.delete()
 
         return evolution
+
+class SolverTestest(InitialValueFinder):
+    def try_system(self,initial_conditions,initial_secondary_angmom,max_age=None):
+        #e_f = e_i * Q(2*P_target)
+        #P_f = P_i / Q(2*P_target)
+
+        #initial_orbital_period=initial_conditions[0]
+        initial_eccentricity=initial_conditions[1]
+        #initial_obliquity=initial_conditions[2]
+        #initial_eccentricity = parameters['initial_eccentricity']
+        final_period = self.system.orbital_period
+        final_eccentricity = self.system.eccentricity
+
+        print('initial_eccentricity = %s' % (repr(initial_eccentricity)))
+        print('initial_period = %s' % (repr(final_period)))
+        print('final_eccentricity = %s' % (repr(final_eccentricity)))
+
+        if initial_eccentricity != 'solve':
+            #final_eccentricity = initial_eccentricity**2
+            change = initial_eccentricity / 2
+            print('change = %s' % (repr(change)))
+            final_eccentricity = initial_eccentricity - change if (initial_eccentricity - change) >= 0.1 else 0.1
+            print('final_eccentricity = %s' % (repr(final_eccentricity)))
+        else:
+            #initial_eccentricity = final_eccentricity**(1/2) if final_eccentricity < .64 else numpy.nan
+            change = final_eccentricity / 2
+            print('change = %s' % (repr(change)))
+            initial_eccentricity = final_eccentricity + change if (final_eccentricity + change) <= 0.8 else 0.8
+            print('initial_eccentricity = %s' % (repr(initial_eccentricity)))
+        #numpy.sqrt(initial_eccentricity) / 2 if initial_eccentricity > .25 else initial_eccentricity / 2
+        initial_period = final_period * 1.1 if final_period.to_value("day") <= 35 else numpy.nan
+        print('initial_period = %s' % (repr(initial_period)))
+
+        #print('initial_eccentricity = %s' % (repr(initial_eccentricity)))
+        #print('initial_period = %s' % (repr(final_period)))
+        #print('final_eccentricity = %s' % (repr(final_eccentricity)))
+
+        ehat_prime = (final_eccentricity - initial_eccentricity) / (final_period - initial_period)
+
+        #if envelope_eccentricity is not None:
+        #    final_eccentricity = 0.2#envelope_eccentricity * (9/10)
+
+        #result = (
+        #        numpy.array([final_period.to_value("day"),final_eccentricity]),
+        #        numpy.array([ehat_prime,initial_eccentricity])
+        #    )
+        result = SimpleNamespace(
+            orbital_period=[initial_period,final_period.to_value("day")],
+            eccentricity=[initial_eccentricity,final_eccentricity]
+        )
+
+        print(result)
+        return result

@@ -289,7 +289,6 @@ def find_evolution(system,
                    interpolator,
                    dissipation,
                    *,
-                   max_age=None,
                    initial_porb=27.3 * units.day,
                    initial_eccentricity=0.0,
                    initial_obliquity=0.0,
@@ -297,10 +296,10 @@ def find_evolution(system,
                    disk_dissipation_age=2e-3 * units.Gyr,
                    primary_wind_strength=0.17,
                    primary_wind_saturation=2.78,
-                   primary_core_envelope_coupling_timescale=0.05,
+                   primary_core_envelope_coupling_timescale=0.05 * units.Gyr,
                    secondary_wind_strength=0.0,
                    secondary_wind_saturation=100.0,
-                   secondary_core_envelope_coupling_timescale=0.05,
+                   secondary_core_envelope_coupling_timescale=0.05 * units.Gyr,
                    secondary_disk_period=None,
                    orbital_period_tolerance=1e-6,
                    eccentricity_tolerance=1e-6,
@@ -400,6 +399,7 @@ def find_evolution(system,
     #laststep = [0.5,0.5,True]
     laststep = [scipy.nan,scipy.nan,scipy.nan]
     earlierstep = [scipy.nan,scipy.nan,scipy.nan]
+    past_initial = [scipy.nan,scipy.nan,scipy.nan]
 
     def errfunc(variable_conditions,
                 fixed_conditions,
@@ -418,6 +418,7 @@ def find_evolution(system,
         ecc_true  = system.eccentricity
         #obliq_true = system.obliquity
 
+        dL = numpy.nan
         if solve_type == "porb":
             error_out = scipy.nan
             porb_i = variable_conditions
@@ -452,6 +453,51 @@ def find_evolution(system,
         initial_conditions = [porb_i,ecc_i,obliq_i]
 
         # Sanity check
+        error_flag = False
+        if numpy.isnan(ecc_i) or numpy.iscomplex(ecc_i):
+            logger.warning('ecc_i is nan or imaginary: %f',ecc_i)
+            error_flag = True
+            # if not numpy.isnan(past_initial[1]):
+            #     ecc_i = past_initial[1]
+            # else:
+            #     logger.error('We should never be here.')
+            #     ecc_i = 0.8
+        if numpy.isnan(porb_i) or numpy.iscomplex(porb_i):
+            logger.warning('porb_i is nan or imaginary: %f',porb_i)
+            error_flag = True
+            # if not numpy.isnan(past_initial[0]):
+            #     porb_i = past_initial[0]
+            # else:
+            #     porb_i = 150.0
+        if numpy.isnan(obliq_i) or numpy.iscomplex(obliq_i):
+            logger.warning('obliq_i is nan or imaginary: %f',obliq_i)
+            error_flag = True
+            # TODO: Obliquity not implemented
+        if error_flag:
+            porb_wrong = numpy.inf
+            ecc_wrong = numpy.inf
+            obliq_wrong = numpy.inf
+            if solve_type == "porb":
+
+                logger.debug('Returning the following value to the solver: %f',porb_wrong)
+                print('Returning the following value to the solver: ',porb_wrong)
+                logger.debug('Target porb: %f',porb_true)
+                print('Target porb: ',porb_true)
+                return porb_wrong
+            elif solve_type == "ecc":
+                logger.debug('Returning the following values to the solver: %s',repr([porb_wrong,ecc_wrong]))
+                print('Returning the following values to the solver: ',[porb_wrong,ecc_wrong])
+                logger.debug('Target porb, ecc: %f, %f',porb_true,ecc_true)
+                print('Target porb, ecc: ',porb_true,ecc_true)
+                #logger.debug('Potential alternate return to solver: ',[p_last,esign])
+                return [porb_wrong,ecc_wrong]
+            else:
+                logger.debug('Returning the following values to the solver: %s',repr([porb_wrong,obliq_i-3.0]))
+                print('Returning the following values to the solver: ',[porb_wrong,obliq_i-3.0])
+                logger.debug('Target porb, obliq: %f, OBLIQUITY NOT YET HANDLED',porb_true)
+                print('Target porb, obliq: ',porb_true,' OBLIQUITY NOT YET HANDLED')
+                return [porb_wrong,obliq_i-3.0] #TODO
+
         #if not numpy.isnan(laststep[0]):
         #    ecc_last=laststep[0]-ecc_true
         #else:
@@ -486,8 +532,12 @@ def find_evolution(system,
                 print('Target porb, obliq: ',porb_true,' OBLIQUITY NOT YET HANDLED')
                 return [porb_i.real-porb_true,obliq_i-3.0] #TODO
 
+        past_initial[0] = porb_i
+        past_initial[1] = ecc_i
+        past_initial[2] = obliq_i
+        
         try:
-            evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom,max_age)
+            evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom)
         except AssertionError as err:
             logger.exception('AssertionError: %s',err)
             return error_out
@@ -558,12 +608,12 @@ def find_evolution(system,
         """
 
         period_search_factor = 1.1
-        max_porb_initial = 50.0
+        max_porb_initial = 100.0
         porb_min, porb_max = scipy.nan, scipy.nan
         porb_initial = system.orbital_period.to_value("day") * 3 #TODO: test this
         #TODO better initial obliq
         try:
-            porb = value_finder.try_system([porb_initial,initial_eccentricity,3],initial_secondary_angmom,max_age).orbital_period[-1]
+            porb = value_finder.try_system([porb_initial,initial_eccentricity,3],initial_secondary_angmom).orbital_period[-1]
         except AssertionError as err:
             logger.exception('AssertionError: %s',err)
             porb=0.0
@@ -577,6 +627,13 @@ def find_evolution(system,
         step = (period_search_factor if guess_porb_error < 0
                 else 1.0 / period_search_factor)
 
+        logger.debug('Relevant parameters before starting period range loop:')
+        logger.debug('porb_error: %f',porb_error)
+        logger.debug('guess_porb_error: %f',guess_porb_error)
+        logger.debug('porb_initial: %f',porb_initial)
+        logger.debug('porb_min: %f',porb_min)
+        logger.debug('porb_max: %f',porb_max)
+        logger.debug('step: %f',step)
         while (
                 porb_error * guess_porb_error > 0
                 and
@@ -607,8 +664,7 @@ def find_evolution(system,
             #TODO better initial obliq
             try:
                 porb = value_finder.try_system([porb_initial,initial_eccentricity,3],
-                                                        initial_secondary_angmom,
-                                                        max_age).orbital_period[-1]
+                                                        initial_secondary_angmom).orbital_period[-1]
             except AssertionError as err:
                 logger.exception('AssertionError: %s',err)
                 porb=0.0
@@ -796,8 +852,7 @@ def find_evolution(system,
         try:
             return value_finder.try_system(
                 [initial_porb.to_value("day"),initial_eccentricity,initial_obliquity],
-                initial_secondary_angmom,
-                max_age
+                initial_secondary_angmom
             ),[scipy.nan,scipy.nan]
         except:
             logger.exception('Something went wrong while trying to evolve the system with the given parameters.')
@@ -939,7 +994,6 @@ if __name__ == '__main__':
         ),
         interpolator=set_up_library(config),
         dissipation=get_poet_dissipation_from_cmdline(config),
-        max_age=config.final_age * units.Gyr,
         disk_period=config.disk_lock_period * units.day,
         disk_dissipation_age=config.disk_dissipation_age * units.Gyr,
         primary_core_envelope_coupling_timescale=(

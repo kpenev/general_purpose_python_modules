@@ -4,5 +4,6 @@ from .split_normal_distribution import split_normal
 
 try:
     from .reproduce_system import find_evolution
-except:
+except ImportError:
+    print('Failed to import find_evolution')
     pass

@@ -1,16 +1,17 @@
 """Define a class allowing to nest initial period solver in another solver."""
 
 import logging
+from types import SimpleNamespace
 
 import numpy
 from astropy import units
-from types import SimpleNamespace
 
 from stellar_evolution.library_interface import MESAInterpolator
-from orbital_evolution.binary import Binary
-from orbital_evolution.star_interface import EvolvingStar
-from orbital_evolution.planet_interface import LockedPlanet
-from orbital_evolution.initial_condition_solver import InitialConditionSolver
+from orbital_evolution import\
+    Binary,\
+    EvolvingStar,\
+    LockedPlanet,\
+    LearningICSolver
 
 #TODO: see if this can be simplified
 #pylint: disable=too-many-instance-attributes
@@ -124,12 +125,12 @@ class PeriodSolverWrapper:
                 self.interpolator['primary'],
                 self.configuration['dissipation']['primary'],
                 wind_strength=self.configuration['primary_wind_strength'],
-                wind_saturation_frequency=(
-                    self.configuration['primary_wind_saturation']
-                ),
-                diff_rot_coupling_timescale=(
-                    self.configuration['primary_core_envelope_coupling_timescale']
-                )
+                wind_saturation_frequency=self.configuration[
+                    'primary_wind_saturation'
+                ],
+                diff_rot_coupling_timescale=self.configuration[
+                    'primary_core_envelope_coupling_timescale'
+                ]
             )
         return self._create_planet(
             mprimary,
@@ -344,7 +345,11 @@ class PeriodSolverWrapper:
                             full_evolution=False):
         """Return the final state or evolution of the system matching target."""
 
-        find_ic = InitialConditionSolver(
+        logging.getLogger(__name__).debug(
+            'Creating learning IC solver with IC model config: %s',
+            repr(self._ic_model_config)
+        )
+        find_ic = LearningICSolver(
             evolution_max_time_step=evolve_kwargs['max_time_step'],
             evolution_precision=evolve_kwargs.get('precision', 1e-6),
             evolution_timeout=evolve_kwargs.get('timeout', 0),
@@ -358,7 +363,8 @@ class PeriodSolverWrapper:
                               'orbital_period_tolerance',
                               'period_search_factor',
                               'scaled_period_guess']
-            }
+            },
+            **self._ic_model_config
         )
         primary = self._create_primary()
         secondary = self._create_secondary()
@@ -407,12 +413,14 @@ class PeriodSolverWrapper:
                  secondary_wind_strength,
                  secondary_wind_saturation,
                  secondary_core_envelope_coupling_timescale,
+                 learning_features=(),
                  secondary_disk_period=None,
                  primary_star=True,
                  secondary_star=False,
                  orbital_period_tolerance=1e-6,
                  period_search_factor=2.0,
                  scaled_period_guess=1.0,
+                 ic_model_id=None,
                  **extra_evolve_args):
         """
         Get ready for the solver.
@@ -463,6 +471,8 @@ class PeriodSolverWrapper:
             secondary_core_envelope_coupling_timescale:    Analogous to
                 primary_core_envelope_coupling_timescale but for the secondary.
 
+            learning_features:    See :meth:`LearningICSolver.__init__'
+
             secondary_disk_period:    The period to which the surface spin of
                 the secondary is locked before the binary forms. If None, the
                 primary disk period is used.
@@ -479,6 +489,9 @@ class PeriodSolverWrapper:
 
             scaled_period_guess:    See same name argument to
                 :meth:`InitialConditionSolver.__init__`
+
+            ic_model_id:    See :meth:`LearningICSolver.__init__'. Left at its
+                default value if None.
 
             extra_evolve_args:    Additional arguments to pass to binary.evolve.
 
@@ -504,6 +517,12 @@ class PeriodSolverWrapper:
             repr(system),
             repr(self.target_state)
         )
+
+        self._ic_model_config = dict(
+            learning_features=learning_features
+        )
+        if ic_model_id is not None:
+            self._ic_model_config['ic_model_id'] = ic_model_id
 
         self.system = system
         if isinstance(interpolator, MESAInterpolator):

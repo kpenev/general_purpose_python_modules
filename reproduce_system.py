@@ -400,6 +400,7 @@ def find_evolution(system,
     laststep = [scipy.nan,scipy.nan,scipy.nan]
     earlierstep = [scipy.nan,scipy.nan,scipy.nan]
     past_initial = [scipy.nan,scipy.nan,scipy.nan]
+    past_diffs = [scipy.nan,scipy.nan,scipy.nan]
 
     def errfunc(variable_conditions,
                 fixed_conditions,
@@ -418,20 +419,43 @@ def find_evolution(system,
         ecc_true  = system.eccentricity
         #obliq_true = system.obliquity
 
+        porb_sign = past_diffs[0] if not numpy.isnan(past_diffs[0]) else 1.0
+        ecc_sign = past_diffs[1] if not numpy.isnan(past_diffs[1]) else 1.0
+        logger.debug('porb_sign: %f',porb_sign)
+        logger.debug('ecc_sign: %f',ecc_sign)
+
         dL = numpy.nan
         if solve_type == "porb":
-            error_out = scipy.nan
+            error_out = numpy.nan
             porb_i = variable_conditions
             ecc_i  = fixed_conditions[0]
             obliq_i = fixed_conditions[1]
         else:
-            error_out = [scipy.nan,scipy.nan]
+            error_out = [numpy.nan,numpy.nan]
             if solve_type == "ecc":
                 dL = variable_conditions[0]
                 ecc_i  = variable_conditions[1]
                 obliq_i = fixed_conditions
-                print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)
-                porb_i = unchange_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)[0]
+                # Sanity check the ecc_i now because if it's weird that will affect porb_i
+                if ecc_i < 0 or ecc_i > 0.8:
+                    logger.warning('Invalid initial eccentricity')
+                    logger.warning('Initial ecc: %f',ecc_i)
+                    print('Invalid Initial Values')
+                    print('Initial ecc: ',ecc_i)
+                    if not numpy.isnan(laststep[2]):
+                        porb_i = laststep[2] # Keep the error in porb the same as the previous step
+                    else:
+                        logger.error('We should never be here.')
+                        raise ValueError("We should never be here.",0)
+                    logger.debug('Returning the following values to the solver: %s',repr([(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]))
+                    print('Returning the following values to the solver: ',[(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign])
+                    logger.debug('Target porb, ecc: %f, %f',porb_true,ecc_true)
+                    print('Target porb, ecc: ',porb_true,ecc_true)
+                    return [(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]
+                else:
+                    print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)
+                    porb_i = unchange_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)[0]
+                    error_out = [(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]
             elif solve_type == "obliq": #TODO: change of variables?
                 porb_i = variable_conditions[0]
                 ecc_i  = fixed_conditions
@@ -474,8 +498,8 @@ def find_evolution(system,
             error_flag = True
             # TODO: Obliquity not implemented
         if error_flag:
-            porb_wrong = numpy.inf
-            ecc_wrong = numpy.inf
+            porb_wrong = porb_sign * numpy.inf
+            ecc_wrong = ecc_sign * numpy.inf
             obliq_wrong = numpy.inf
             if solve_type == "porb":
 
@@ -513,18 +537,24 @@ def find_evolution(system,
             print('Invalid Initial Values')
             print('Initial porb, ecc, obliq: ',porb_i,ecc_i,obliq_i)
             if solve_type == "porb":
-                logger.debug('Returning the following value to the solver: %f',porb_i.real-porb_true)
-                print('Returning the following value to the solver: ',porb_i.real-porb_true)
+                logger.debug('Returning the following value to the solver: %f',(porb_i.real-porb_true)*porb_sign)
+                print('Returning the following value to the solver: ',(porb_i.real-porb_true)*porb_sign)
+                #logger.debug('Returning the following value to the solver: %f',((porb_i.real-porb_true)/orbital_period_tolerance)**2)
+                #print('Returning the following value to the solver: ',((porb_i.real-porb_true)/orbital_period_tolerance)**2)
                 logger.debug('Target porb: %f',porb_true)
                 print('Target porb: ',porb_true)
-                return porb_i.real-porb_true
+                return (porb_i.real-porb_true)*porb_sign
+                #return ((porb_i.real-porb_true)/orbital_period_tolerance)**2
             elif solve_type == "ecc":
-                logger.debug('Returning the following values to the solver: %s',repr([porb_i.real-porb_true,ecc_i-ecc_true]))
-                print('Returning the following values to the solver: ',[porb_i.real-porb_true,ecc_i-ecc_true])
+                logger.debug('Returning the following values to the solver: %s',repr([(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]))
+                print('Returning the following values to the solver: ',[(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign])
+                #logger.debug('Returning the following values to the solver: %s',repr(((porb_i.real-porb_true)/orbital_period_tolerance)**2 + ((ecc_i-ecc_true)/eccentricity_tolerance)**2))
+                #print('Returning the following values to the solver: ',((porb_i.real-porb_true)/orbital_period_tolerance)**2 + ((ecc_i-ecc_true)/eccentricity_tolerance)**2)
                 logger.debug('Target porb, ecc: %f, %f',porb_true,ecc_true)
                 print('Target porb, ecc: ',porb_true,ecc_true)
                 #logger.debug('Potential alternate return to solver: ',[p_last,esign])
-                return [porb_i.real-porb_true,ecc_i-ecc_true]
+                return [(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]
+                #return ((porb_i.real-porb_true)/orbital_period_tolerance)**2 + ((ecc_i-ecc_true)/eccentricity_tolerance)**2
             else:
                 logger.debug('Returning the following values to the solver: %s',repr([porb_i.real-porb_true,obliq_i-3.0]))
                 print('Returning the following values to the solver: ',[porb_i.real-porb_true,obliq_i-3.0])
@@ -540,6 +570,8 @@ def find_evolution(system,
             evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom)
         except AssertionError as err:
             logger.exception('AssertionError: %s',err)
+            logger.debug('Returning the following values to the solver: %s',repr(error_out))
+            print('Returning the following values to the solver: ',error_out)
             return error_out
         except:
             logger.exception('Something unknown went wrong while trying to evolve the system with the given parameters.')
@@ -553,6 +585,8 @@ def find_evolution(system,
 
         porb_diff = porb_found-porb_true
         ecc_diff = ecc_found-ecc_true
+        past_diffs[0] = porb_diff / numpy.abs(porb_diff)
+        past_diffs[1] = ecc_diff / numpy.abs(ecc_diff)
 
         logger.debug('porb tolerance vs porb diff: %f, %f',orbital_period_tolerance,porb_diff)
         logger.debug('ecc tolerance vs ecc diff: %f, %f',eccentricity_tolerance,ecc_diff)
@@ -566,12 +600,15 @@ def find_evolution(system,
 
         if solve_type == "porb":
             difference = porb_diff
+            diff_square = (porb_diff/orbital_period_tolerance)**2
             check = orbital_period_tolerance
         elif solve_type == "ecc":
             difference = [porb_diff,ecc_diff]
+            diff_square = (porb_diff/orbital_period_tolerance)**2 + (ecc_diff/eccentricity_tolerance)**2
             check = [orbital_period_tolerance,eccentricity_tolerance]
         else:
             difference = [porb_diff,obliq_found-obliq_i]
+            diff_square = (porb_diff/orbital_period_tolerance)**2 + ((obliq_found-obliq_i)/obliquity_tolerance)**2
             check = [orbital_period_tolerance,obliquity_tolerance]
         
         if numpy.all(numpy.abs(difference) <= check):
@@ -597,8 +634,13 @@ def find_evolution(system,
             laststep[0] = ecc_i
             laststep[1] = ecc_found
             laststep[2] = porb_found
-            print(difference)
-            return difference
+            print('difference: ',difference)
+            print('diff_square: ',diff_square)
+            #logger.debug('diff_square: %f',diff_square)
+            #if solve_type=="porb":
+            #    logger.debug('difference: %f',difference)
+            #    return difference
+            return difference#diff_square
         #TODO make sure last three points aren't all on a line?
     def get_period_range(initial_eccentricity):
         """
@@ -767,13 +809,13 @@ def find_evolution(system,
         **extra_evolve_args
     )
 
-    initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,3]  #TODO make obliq reflect system
+    initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,0.0]  #TODO make obliq reflect system
     logger.debug('Old version of initial guess: %s',repr(initial_guess))
     #initial_guess = [10,0.3,3]
     newe = 0.5#system.eccentricity*2
     #if newe>0.8:
     #    newe=0.8
-    initial_guess = [system.orbital_period.to_value("day")*2,newe,3]
+    initial_guess = [system.orbital_period.to_value("day")*2,newe,0.0]
     logger.debug('New version of initial guess: %s',repr(initial_guess))
     initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
     #initial_eccentricity='solve'

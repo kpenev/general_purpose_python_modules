@@ -671,7 +671,85 @@ class InitialValueFinder:
 
         logger.debug('Final period: %s, ',
                                             repr(evolution.orbital_period[-1]))
-        assert(final_state.age==self.target_state.age)
+        try:
+            assert(final_state.age==self.target_state.age)
+        except AssertionError:
+            #Save the parameters and evolution to an astropy fits file. Parameters in header data.
+            #import astropy.io.fits as fits
+            import os
+            import datetime
+            from astropy.table import Table
+
+            #Create the directory if it doesn't exist
+            if not os.path.exists('failed_solutions'):
+                os.mkdir('failed_solutions')
+            
+            #Create the filename
+            now = datetime.datetime.now()
+            filename = 'failed_solutions/solution_%s.fits' % (now.strftime('%Y-%m-%d_%H-%M-%S'))
+
+            #Create the table
+            table = Table()
+            table['age'] = evolution.age
+            table['porb'] = evolution.orbital_period
+            table['eccentricity'] = evolution.eccentricity
+            table['primary_radius'] = evolution.primary_radius
+            table['primary_lum'] = evolution.primary_lum
+            table['primary_iconv'] = evolution.primary_iconv
+            table['primary_irad'] = evolution.primary_irad
+            table['secondary_radius'] = evolution.secondary_radius
+            table['secondary_lum'] = evolution.secondary_lum
+            table['secondary_iconv'] = evolution.secondary_iconv
+            table['secondary_irad'] = evolution.secondary_irad
+
+            #Create the header
+            #table.meta = fits.Header()
+            #table.meta['dissipation'] = self.configuration['dissipation']['primary']
+            for key in self.configuration['dissipation']['primary']:
+                value = self.configuration['dissipation']['primary'][key]
+                # Turn that value to a string to make sure it's valid for a fits header
+                value = str(value)
+                name = key[::2][:8]
+                table.meta[name] = value
+            #table.meta['lgQ_min'] = self.configuration['dissipation']['primary']['lgQ_min']
+            #table.meta['lgQ_inertial_boost'] = self.configuration['dissipation']['primary']['lgQ_inertial_boost']
+            #table.meta['lgQ_inertial_sharpness'] = self.configuration['dissipation']['primary']['lgQ_inertial_sharpness']
+            #table.meta['lgQ_break_period'] = self.configuration['dissipation']['primary']['lgQ_break_period']
+            #table.meta['lgQ_powerlaw'] = self.configuration['dissipation']['primary']['lgQ_powerlaw']
+            table.meta['didiage'] = self.configuration['disk_dissipation_age']
+            table.meta['p_dlp'] = self.target_state.Pdisk
+            table.meta['p_windst'] = self.configuration['primary_wind_strength']
+            table.meta['p_windsa'] = self.configuration['primary_wind_saturation']
+            table.meta['p_cect'] = self.configuration['primary_core_envelope_coupling_timescale'].to_value(units.Gyr)
+            table.meta['ecc_i'] = initial_eccentricity
+            table.meta['s_dlp'] = self.configuration['secondary_disk_period']
+            table.meta['s_windst'] = self.configuration['secondary_wind_strength']
+            table.meta['s_windsa'] = self.configuration['secondary_wind_saturation']
+            table.meta['s_cect'] = self.configuration['secondary_core_envelope_coupling_timescale'].to_value(units.Gyr)
+            table.meta['age'] = self.target_state.age
+            table.meta['feh'] = self.system.feh
+            table.meta['porb'] = self.target_state.Porb
+            table.meta['p_mass'] = self.system.primary_mass.to_value(units.M_sun)
+            table.meta['s_mass'] = self.system.secondary_mass.to_value(units.M_sun)
+            table.meta['p_rad'] = self.system.Rprimary.to_value(units.R_sun)
+            table.meta['s_rad'] = self.system.Rsecondary.to_value(units.R_sun)
+            table.meta['p_i'] = initial_orbital_period
+            table.meta['evo_maxt'] = self.target_state.evolution_max_time_step
+            table.meta['evo_prec'] = self.target_state.evolution_precision
+            table.meta['orb_ptol'] = self.configuration['orbital_period_tolerance']
+            table.meta['pformage'] = self.target_state.planet_formation_age
+
+            #Save the file
+            #fits.writeto(filename,table,table.meta,overwrite=True)
+            table.write(filename,overwrite=True)
+
+            # Make sure we actually clean up after ourselves
+            primary.delete()
+            secondary.delete()
+            binary.delete()
+
+            #Raise the error
+            raise AssertionError("Final age does not match target age. See %s for details." % (filename))
 
         primary.delete()
         secondary.delete()

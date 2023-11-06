@@ -310,6 +310,7 @@ def find_evolution(system,
                    solve=True,
                    max_iterations=49,
                    secondary_is_star=None,
+                   carepackage = None,
                    **extra_evolve_args):
     """
     Find the evolution of the given system.
@@ -419,6 +420,8 @@ def find_evolution(system,
         ecc_true  = system.eccentricity
         #obliq_true = system.obliquity
 
+        thetype = None
+
         porb_sign = past_diffs[0] if not numpy.isnan(past_diffs[0]) else 1.0
         ecc_sign = past_diffs[1] if not numpy.isnan(past_diffs[1]) else 1.0
         logger.debug('porb_sign: %f',porb_sign)
@@ -430,9 +433,11 @@ def find_evolution(system,
             porb_i = variable_conditions
             ecc_i  = fixed_conditions[0]
             obliq_i = fixed_conditions[1]
+            thetype = '1d'
         else:
             error_out = [numpy.nan,numpy.nan]
             if solve_type == "ecc":
+                thetype = '2d'
                 dL = variable_conditions[0]
                 ecc_i  = variable_conditions[1]
                 obliq_i = fixed_conditions
@@ -567,7 +572,10 @@ def find_evolution(system,
         past_initial[2] = obliq_i
         
         try:
-            evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom)
+            evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom,
+                                                '/home/vortebo/ctime/ayeye',
+                                                thetype,
+                                                carepackage)
         except AssertionError as err:
             logger.exception('AssertionError: %s',err)
             logger.debug('Returning the following values to the solver: %s',repr(error_out))
@@ -653,9 +661,12 @@ def find_evolution(system,
         max_porb_initial = 100.0
         porb_min, porb_max = scipy.nan, scipy.nan
         porb_initial = system.orbital_period.to_value("day") * 3 #TODO: test this
-        #TODO better initial obliq
+        obliq_i = 0.0
         try:
-            porb = value_finder.try_system([porb_initial,initial_eccentricity,3],initial_secondary_angmom).orbital_period[-1]
+            porb = value_finder.try_system([porb_initial,initial_eccentricity,obliq_i],initial_secondary_angmom,
+                                           '/home/vortebo/ctime/ayeye',
+                                           '1d',
+                                           carepackage).orbital_period[-1]
         except AssertionError as err:
             logger.exception('AssertionError: %s',err)
             porb=0.0
@@ -705,8 +716,11 @@ def find_evolution(system,
             )
             #TODO better initial obliq
             try:
-                porb = value_finder.try_system([porb_initial,initial_eccentricity,3],
-                                                        initial_secondary_angmom).orbital_period[-1]
+                porb = value_finder.try_system([porb_initial,initial_eccentricity,obliq_i],
+                                                        initial_secondary_angmom,
+                                                        '/home/vortebo/ctime/ayeye',
+                                                        '1d',
+                                                        carepackage).orbital_period[-1]
             except AssertionError as err:
                 logger.exception('AssertionError: %s',err)
                 porb=0.0

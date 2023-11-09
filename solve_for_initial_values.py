@@ -16,6 +16,8 @@ from orbital_evolution.transformations import phase_lag
 from orbital_evolution.star_interface import EvolvingStar
 from orbital_evolution.planet_interface import LockedPlanet
 
+from POET.solver import poet_solver
+
 class InitialValueFinder:
     """TODO add proper documentation."""
 
@@ -589,7 +591,10 @@ class InitialValueFinder:
 
         return result
     
-    def try_system(self,initial_conditions,initial_secondary_angmom):
+    def try_system(self,initial_conditions,initial_secondary_angmom,
+                   path = None,
+                   type = None,
+                   carepackage = None,):
         """
         Return the evolution matching the given system configuration.
 
@@ -707,7 +712,6 @@ class InitialValueFinder:
             #table.meta['dissipation'] = self.configuration['dissipation']['primary']
             for key in self.configuration['dissipation']['primary']:
                 value = self.configuration['dissipation']['primary'][key]
-                # Turn that value to a string to make sure it's valid for a fits header
                 value = str(value)
                 name = key[::2][:8]
                 table.meta[name] = value
@@ -751,6 +755,78 @@ class InitialValueFinder:
             #Raise the error
             raise AssertionError("Final age does not match target age. See %s for details." % (filename))
 
+        # Set up AI stuff
+        if path is not None and type is not None and carepackage is not None:
+            # Save all the x parameters into a table
+            x_vals_list = []
+            # for key in carepackage:
+            #     if key != 'system_name':
+            #         x_vals_list.append(carepackage[key])
+            #     else:
+            #         logger.debug('Successfully skipped system_name')
+            x_vals_list.append(carepackage['lgQ_min'])
+            x_vals_list.append(carepackage['lgQ_break_period'].to_value(units.day))
+            x_vals_list.append(carepackage['lgQ_powerlaw'])
+            x_vals_list.append(self.target_state.age)
+            x_vals_list.append(self.system.feh)
+            x_vals_list.append(self.target_state.Porb)
+            x_vals_list.append(self.system.primary_mass.to_value(units.M_sun))
+            x_vals_list.append(self.system.secondary_mass.to_value(units.M_sun))
+            x_vals_list.append(self.system.Rprimary.to_value(units.R_sun))
+            x_vals_list.append(self.system.Rsecondary.to_value(units.R_sun))
+            logger.debug('x_vals_list = %s, ', repr(x_vals_list))
+            x_vals = numpy.array(x_vals_list)
+            logger.debug('x_vals = %s, ', repr(x_vals))
+
+            #x_vals.append(initial_eccentricity)
+            #table.meta['p_i'] = initial_orbital_period
+            params = {
+                "type": 'blank',
+                "epochs": 30,
+                "batch_size": 100,
+                "verbose": 2,
+                "retrain": False,
+                "threshold": 2000,
+                "path_to_store": path,
+                "version": carepackage['system_name'],
+                "features": [True, True, True, True, True, True]
+            }
+
+            if type == '1d':
+                X_train = x_vals
+                
+                params['type'] = '1d_period'
+
+                y_train = initial_orbital_period
+                #X_test = None
+                ai_model = poet_solver.POET_IC_Solver(**params)
+                if carepackage['lock'] is not None:
+                    carepackage['lock'].acquire()
+                ai_model.store_data(X_train=X_train, y_train=y_train)
+                if carepackage['lock'] is not None:
+                    carepackage['lock'].release()
+                #ai_model.fit_evaluate(X_test=X_test)
+            elif type == '2d':
+                X_train = x_vals
+
+                params['type'] = '2d_period'
+                y_train = initial_orbital_period
+                ai_model1 = poet_solver.POET_IC_Solver(**params)
+                if carepackage['lock'] is not None:
+                    carepackage['lock'].acquire()
+                ai_model1.store_data(X_train=X_train, y_train=y_train)
+                if carepackage['lock'] is not None:
+                    carepackage['lock'].release()
+
+                params['type'] = '2d_eccentricity'
+                y_train = initial_eccentricity
+                ai_model2 = poet_solver.POET_IC_Solver(**params)
+                if carepackage['lock'] is not None:
+                    carepackage['lock'].acquire()
+                ai_model2.store_data(X_train=X_train, y_train=y_train)
+                if carepackage['lock'] is not None:
+                    carepackage['lock'].release()
+        
         primary.delete()
         secondary.delete()
         binary.delete()

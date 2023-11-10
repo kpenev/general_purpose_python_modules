@@ -330,7 +330,7 @@ class InitialValueFinder:
                 #modifications)
                 valid_ages = numpy.logical_and(
                     evolution.age > quantity.min_age * 2.0,
-                    evolution.age < quantity.max_age / 2.0
+                    evolution.age < quantity.max_age
                 )
                 if quantity_name in ['iconv', 'irad']:
                     values[valid_ages] = getattr(
@@ -706,6 +706,10 @@ class InitialValueFinder:
             table['secondary_lum'] = evolution.secondary_lum
             table['secondary_iconv'] = evolution.secondary_iconv
             table['secondary_irad'] = evolution.secondary_irad
+            table['primary_L_env'] = evolution.primary_envelope_angmom
+            table['primary_L_core'] = evolution.primary_core_angmom
+            table['secondary_L_env'] = evolution.secondary_envelope_angmom
+            table['secondary_L_core'] = evolution.secondary_core_angmom
 
             #Create the header
             #table.meta = fits.Header()
@@ -723,15 +727,20 @@ class InitialValueFinder:
             table.meta['didiage'] = self.configuration['disk_dissipation_age']
             table.meta['p_dlp'] = self.target_state.Pdisk
             table.meta['p_windst'] = self.configuration['primary_wind_strength']
+            print(self.configuration['primary_wind_strength'])
             table.meta['p_windsa'] = self.configuration['primary_wind_saturation']
+            print(self.configuration['primary_wind_saturation'])
             table.meta['p_cect'] = self.configuration['primary_core_envelope_coupling_timescale'].to_value(units.Gyr)
             table.meta['ecc_i'] = initial_eccentricity
             table.meta['s_dlp'] = self.configuration['secondary_disk_period']
             table.meta['s_windst'] = self.configuration['secondary_wind_strength']
+            print(self.configuration['secondary_wind_strength'])
             table.meta['s_windsa'] = self.configuration['secondary_wind_saturation']
+            print(self.configuration['secondary_wind_saturation'])
             table.meta['s_cect'] = self.configuration['secondary_core_envelope_coupling_timescale'].to_value(units.Gyr)
             table.meta['age'] = self.target_state.age
             table.meta['feh'] = self.system.feh
+            print(self.system.feh)
             table.meta['porb'] = self.target_state.Porb
             table.meta['p_mass'] = self.system.primary_mass.to_value(units.M_sun)
             table.meta['s_mass'] = self.system.secondary_mass.to_value(units.M_sun)
@@ -769,14 +778,12 @@ class InitialValueFinder:
             x_vals_list.append(carepackage['lgQ_powerlaw'])
             x_vals_list.append(self.target_state.age)
             x_vals_list.append(self.system.feh)
-            x_vals_list.append(self.target_state.Porb)
+            x_vals_list.append(evolution.orbital_period[-1])
             x_vals_list.append(self.system.primary_mass.to_value(units.M_sun))
             x_vals_list.append(self.system.secondary_mass.to_value(units.M_sun))
             x_vals_list.append(self.system.Rprimary.to_value(units.R_sun))
             x_vals_list.append(self.system.Rsecondary.to_value(units.R_sun))
             logger.debug('x_vals_list = %s, ', repr(x_vals_list))
-            x_vals = numpy.array(x_vals_list)
-            logger.debug('x_vals = %s, ', repr(x_vals))
 
             #x_vals.append(initial_eccentricity)
             #table.meta['p_i'] = initial_orbital_period
@@ -793,6 +800,8 @@ class InitialValueFinder:
             }
 
             if type == '1d':
+                x_vals = numpy.array(x_vals_list)
+                logger.debug('x_vals = %s, ', repr(x_vals))
                 X_train = x_vals
                 
                 params['type'] = '1d_period'
@@ -807,6 +816,11 @@ class InitialValueFinder:
                     carepackage['lock'].release()
                 #ai_model.fit_evaluate(X_test=X_test)
             elif type == '2d':
+                x_vals_list.append(final_state.eccentricity)
+                logger.debug('NOW x_vals_list = %s, ', repr(x_vals_list))
+
+                x_vals = numpy.array(x_vals_list)
+                logger.debug('x_vals = %s, ', repr(x_vals))
                 X_train = x_vals
 
                 params['type'] = '2d_period'

@@ -573,7 +573,6 @@ def find_evolution(system,
         
         try:
             evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom,
-                                                '/home/vortebo/ctime/ayeye',
                                                 thetype,
                                                 carepackage)
         except AssertionError as err:
@@ -664,7 +663,6 @@ def find_evolution(system,
         obliq_i = 0.0
         try:
             porb = value_finder.try_system([porb_initial,initial_eccentricity,obliq_i],initial_secondary_angmom,
-                                           '/home/vortebo/ctime/ayeye',
                                            '1d',
                                            carepackage).orbital_period[-1]
         except AssertionError as err:
@@ -718,7 +716,6 @@ def find_evolution(system,
             try:
                 porb = value_finder.try_system([porb_initial,initial_eccentricity,obliq_i],
                                                         initial_secondary_angmom,
-                                                        '/home/vortebo/ctime/ayeye',
                                                         '1d',
                                                         carepackage).orbital_period[-1]
             except AssertionError as err:

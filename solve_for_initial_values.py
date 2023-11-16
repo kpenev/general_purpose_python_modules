@@ -592,7 +592,6 @@ class InitialValueFinder:
         return result
     
     def try_system(self,initial_conditions,initial_secondary_angmom,
-                   path = None,
                    type = None,
                    carepackage = None,):
         """
@@ -765,7 +764,7 @@ class InitialValueFinder:
             raise AssertionError("Final age does not match target age. See %s for details." % (filename))
 
         # Set up AI stuff
-        if path is not None and type is not None and carepackage is not None:
+        if type is not None and carepackage is not None:
             # Save all the x parameters into a table
             x_vals_list = []
             # for key in carepackage:
@@ -794,7 +793,7 @@ class InitialValueFinder:
                 "verbose": 2,
                 "retrain": False,
                 "threshold": 2000,
-                "path_to_store": path,
+                "path_to_store": carepackage['path'],
                 "version": carepackage['system_name'],
                 "features": [True, True, True, True, True, True]
             }

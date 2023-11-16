@@ -795,7 +795,7 @@ class InitialValueFinder:
                 "threshold": 2000,
                 "path_to_store": carepackage['path'],
                 "version": carepackage['system_name'],
-                "features": [True, True, True, True, True, True]
+                "features": [True, True, True, True, True, True, True, True, True, True]
             }
 
             if type == '1d':
@@ -817,6 +817,7 @@ class InitialValueFinder:
             elif type == '2d':
                 x_vals_list.append(final_state.eccentricity)
                 logger.debug('NOW x_vals_list = %s, ', repr(x_vals_list))
+                params['features'].append(True)
 
                 x_vals = numpy.array(x_vals_list)
                 logger.debug('x_vals = %s, ', repr(x_vals))

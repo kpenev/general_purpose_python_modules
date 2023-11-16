@@ -658,7 +658,7 @@ def find_evolution(system,
         """
 
         period_search_factor = 1.1
-        max_porb_initial = 100.0
+        max_porb_initial = 200.0
         porb_min, porb_max = scipy.nan, scipy.nan
         porb_initial = system.orbital_period.to_value("day") * 3 #TODO: test this
         obliq_i = 0.0
@@ -749,6 +749,10 @@ def find_evolution(system,
             repr(porb_min),
             repr(porb_max)
         )
+        
+        if numpy.isnan(porb_min) or numpy.isnan(porb_max):
+            logger.exception("porb_min or porb_max is nan")
+            raise ValueError("porb_min or porb_max is nan",0)
 
         return porb_min, porb_max
 

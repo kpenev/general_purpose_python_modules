@@ -876,20 +876,21 @@ def find_evolution(system,
                 porb_min, porb_max = get_period_range(initial_eccentricity)
                 initial_guess[1] = initial_eccentricity
 
-                scipy.optimize.brentq(
+                print( scipy.optimize.brentq(
                     errfunc,
                     porb_min,
                     porb_max,
-                    xtol=orbital_period_tolerance/10,
-                    rtol=orbital_period_tolerance/10,
+                    xtol=orbital_period_tolerance/100,
+                    rtol=orbital_period_tolerance/100,
                     maxiter=max_iterations,
                     args=([initial_guess[1],initial_guess[2]],
                             initial_secondary_angmom,
                             orbital_period_tolerance,
                             eccentricity_tolerance,
                             obliquity_tolerance,
-                            "porb")
-                )
+                            "porb"),
+                    full_output=True
+                ) )
         except ValueError as err:
             try:
                 length_of_args = len(err.args)

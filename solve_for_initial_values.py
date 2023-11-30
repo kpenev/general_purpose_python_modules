@@ -672,74 +672,64 @@ class InitialValueFinder:
         evolution = self._format_evolution(binary,
                                            self.interpolator,
                                            self.secondary_star)
+        
+        # Clean up
+        primary.delete()
+        secondary.delete()
+        binary.delete()
 
         logger.debug('Final period: %s, ',
                                             repr(evolution.orbital_period[-1]))
         try:
             assert(final_state.age==self.target_state.age)
         except AssertionError:
-            #Save the parameters and evolution to an astropy fits file. Parameters in header data.
-            #import astropy.io.fits as fits
+            # Save the parameters and evolution to an astropy fits file. Parameters in header data.
             import os
             import datetime
             from astropy.table import Table
 
-            #Create the directory if it doesn't exist
-            if not os.path.exists('failed_solutions'):
-                os.mkdir('failed_solutions')
-            
-            #Create the filename
+            # Create the directory if it doesn't exist
+            os.makedirs('failed_solutions', exist_ok=True)
+
+            # Create the filename
             now = datetime.datetime.now()
-            filename = 'failed_solutions/solution_%s.fits' % (now.strftime('%Y-%m-%d_%H-%M-%S'))
+            filename = f'failed_solutions/solution_{now.strftime("%Y-%m-%d_%H-%M-%S")}.fits'
 
-            #Create the table
-            table = Table()
-            table['age'] = evolution.age
-            table['porb'] = evolution.orbital_period
-            table['eccentricity'] = evolution.eccentricity
-            table['primary_radius'] = evolution.primary_radius
-            table['primary_lum'] = evolution.primary_lum
-            table['primary_iconv'] = evolution.primary_iconv
-            table['primary_irad'] = evolution.primary_irad
-            table['secondary_radius'] = evolution.secondary_radius
-            table['secondary_lum'] = evolution.secondary_lum
-            table['secondary_iconv'] = evolution.secondary_iconv
-            table['secondary_irad'] = evolution.secondary_irad
-            table['primary_L_env'] = evolution.primary_envelope_angmom
-            table['primary_L_core'] = evolution.primary_core_angmom
-            table['secondary_L_env'] = evolution.secondary_envelope_angmom
-            table['secondary_L_core'] = evolution.secondary_core_angmom
+            # Create the table
+            table = Table({
+                'age': evolution.age,
+                'porb': evolution.orbital_period,
+                'eccentricity': evolution.eccentricity,
+                'primary_radius': evolution.primary_radius,
+                'primary_lum': evolution.primary_lum,
+                'primary_iconv': evolution.primary_iconv,
+                'primary_irad': evolution.primary_irad,
+                'secondary_radius': evolution.secondary_radius,
+                'secondary_lum': evolution.secondary_lum,
+                'secondary_iconv': evolution.secondary_iconv,
+                'secondary_irad': evolution.secondary_irad,
+                'primary_L_env': evolution.primary_envelope_angmom,
+                'primary_L_core': evolution.primary_core_angmom,
+                'secondary_L_env': evolution.secondary_envelope_angmom,
+                'secondary_L_core': evolution.secondary_core_angmom
+            })
 
-            #Create the header
-            #table.meta = fits.Header()
-            #table.meta['dissipation'] = self.configuration['dissipation']['primary']
-            for key in self.configuration['dissipation']['primary']:
-                value = self.configuration['dissipation']['primary'][key]
-                value = str(value)
+            # Create the header
+            for key, value in self.configuration['dissipation']['primary'].items():
                 name = key[::2][:8]
-                table.meta[name] = value
-            #table.meta['lgQ_min'] = self.configuration['dissipation']['primary']['lgQ_min']
-            #table.meta['lgQ_inertial_boost'] = self.configuration['dissipation']['primary']['lgQ_inertial_boost']
-            #table.meta['lgQ_inertial_sharpness'] = self.configuration['dissipation']['primary']['lgQ_inertial_sharpness']
-            #table.meta['lgQ_break_period'] = self.configuration['dissipation']['primary']['lgQ_break_period']
-            #table.meta['lgQ_powerlaw'] = self.configuration['dissipation']['primary']['lgQ_powerlaw']
+                table.meta[name] = str(value)
             table.meta['didiage'] = self.configuration['disk_dissipation_age']
             table.meta['p_dlp'] = self.target_state.Pdisk
             table.meta['p_windst'] = self.configuration['primary_wind_strength']
-            print(self.configuration['primary_wind_strength'])
             table.meta['p_windsa'] = self.configuration['primary_wind_saturation']
-            print(self.configuration['primary_wind_saturation'])
             table.meta['p_cect'] = self.configuration['primary_core_envelope_coupling_timescale'].to_value(units.Gyr)
             table.meta['ecc_i'] = initial_eccentricity
             table.meta['s_dlp'] = self.configuration['secondary_disk_period']
             table.meta['s_windst'] = self.configuration['secondary_wind_strength']
-            print(self.configuration['secondary_wind_strength'])
             table.meta['s_windsa'] = self.configuration['secondary_wind_saturation']
-            print(self.configuration['secondary_wind_saturation'])
             table.meta['s_cect'] = self.configuration['secondary_core_envelope_coupling_timescale'].to_value(units.Gyr)
             table.meta['age'] = self.target_state.age
             table.meta['feh'] = self.system.feh
-            print(self.system.feh)
             table.meta['porb'] = self.target_state.Porb
             table.meta['p_mass'] = self.system.primary_mass.to_value(units.M_sun)
             table.meta['s_mass'] = self.system.secondary_mass.to_value(units.M_sun)
@@ -751,41 +741,29 @@ class InitialValueFinder:
             table.meta['orb_ptol'] = self.configuration['orbital_period_tolerance']
             table.meta['pformage'] = self.target_state.planet_formation_age
 
-            #Save the file
-            #fits.writeto(filename,table,table.meta,overwrite=True)
-            table.write(filename,overwrite=True)
+            # Save the file
+            table.write(filename, overwrite=True)
 
-            # Make sure we actually clean up after ourselves
-            primary.delete()
-            secondary.delete()
-            binary.delete()
-
-            #Raise the error
-            raise AssertionError("Final age does not match target age. See %s for details." % (filename))
+            # Raise the error
+            raise AssertionError(f"Final age does not match target age. See {filename} for details.")
 
         # Set up AI stuff
         if type is not None and carepackage is not None:
             # Save all the x parameters into a table
-            x_vals_list = []
-            # for key in carepackage:
-            #     if key != 'system_name':
-            #         x_vals_list.append(carepackage[key])
-            #     else:
-            #         logger.debug('Successfully skipped system_name')
-            x_vals_list.append(carepackage['lgQ_min'])
-            x_vals_list.append(carepackage['lgQ_break_period'].to_value(units.day))
-            x_vals_list.append(carepackage['lgQ_powerlaw'])
-            x_vals_list.append(self.target_state.age)
-            x_vals_list.append(self.system.feh)
-            x_vals_list.append(evolution.orbital_period[-1])
-            x_vals_list.append(self.system.primary_mass.to_value(units.M_sun))
-            x_vals_list.append(self.system.secondary_mass.to_value(units.M_sun))
-            x_vals_list.append(self.system.Rprimary.to_value(units.R_sun))
-            x_vals_list.append(self.system.Rsecondary.to_value(units.R_sun))
+            x_vals_list = [
+                carepackage['lgQ_min'],
+                carepackage['lgQ_break_period'].to_value(units.day),
+                carepackage['lgQ_powerlaw'],
+                self.target_state.age,
+                self.system.feh,
+                evolution.orbital_period[-1],
+                self.system.primary_mass.to_value(units.M_sun),
+                self.system.secondary_mass.to_value(units.M_sun),
+                self.system.Rprimary.to_value(units.R_sun),
+                self.system.Rsecondary.to_value(units.R_sun)
+            ]
             logger.debug('x_vals_list = %s, ', repr(x_vals_list))
 
-            #x_vals.append(initial_eccentricity)
-            #table.meta['p_i'] = initial_orbital_period
             params = {
                 "type": 'blank',
                 "epochs": 30,
@@ -799,32 +777,25 @@ class InitialValueFinder:
             }
 
             if type == '1d':
-                x_vals = numpy.array(x_vals_list)
-                logger.debug('x_vals = %s, ', repr(x_vals))
-                X_train = x_vals
-                
-                params['type'] = '1d_period'
-
+                X_train = numpy.array(x_vals_list)
+                logger.debug('X_train = %s, ', repr(X_train))
                 y_train = initial_orbital_period
-                #X_test = None
+                params['type'] = '1d_period'
                 ai_model = poet_solver.POET_IC_Solver(**params)
                 if carepackage['lock'] is not None:
                     carepackage['lock'].acquire()
                 ai_model.store_data(X_train=X_train, y_train=y_train)
                 if carepackage['lock'] is not None:
                     carepackage['lock'].release()
-                #ai_model.fit_evaluate(X_test=X_test)
             elif type == '2d':
                 x_vals_list.append(final_state.eccentricity)
                 logger.debug('NOW x_vals_list = %s, ', repr(x_vals_list))
                 params['features'].append(True)
+                X_train = numpy.array(x_vals_list)
+                logger.debug('X_train = %s, ', repr(X_train))
 
-                x_vals = numpy.array(x_vals_list)
-                logger.debug('x_vals = %s, ', repr(x_vals))
-                X_train = x_vals
-
-                params['type'] = '2d_period'
                 y_train = initial_orbital_period
+                params['type'] = '2d_period'
                 ai_model1 = poet_solver.POET_IC_Solver(**params)
                 if carepackage['lock'] is not None:
                     carepackage['lock'].acquire()
@@ -832,18 +803,14 @@ class InitialValueFinder:
                 if carepackage['lock'] is not None:
                     carepackage['lock'].release()
 
-                params['type'] = '2d_eccentricity'
                 y_train = initial_eccentricity
+                params['type'] = '2d_eccentricity'
                 ai_model2 = poet_solver.POET_IC_Solver(**params)
                 if carepackage['lock'] is not None:
                     carepackage['lock'].acquire()
                 ai_model2.store_data(X_train=X_train, y_train=y_train)
                 if carepackage['lock'] is not None:
                     carepackage['lock'].release()
-        
-        primary.delete()
-        secondary.delete()
-        binary.delete()
 
         return evolution
 

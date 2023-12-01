@@ -785,6 +785,9 @@ class InitialValueFinder:
                 if carepackage['lock'] is not None:
                     carepackage['lock'].acquire()
                 ai_model.store_data(X_train=X_train, y_train=y_train)
+                length = ai_model.data_length()
+                if length > params['threshold'] and length % 200:
+                    ai_model.just_fit()
                 if carepackage['lock'] is not None:
                     carepackage['lock'].release()
             elif type == '2d':
@@ -800,6 +803,9 @@ class InitialValueFinder:
                 if carepackage['lock'] is not None:
                     carepackage['lock'].acquire()
                 ai_model1.store_data(X_train=X_train, y_train=y_train)
+                length = ai_model.data_length()
+                if length > params['threshold'] and length % 200:
+                    ai_model.just_fit()
                 if carepackage['lock'] is not None:
                     carepackage['lock'].release()
 
@@ -809,6 +815,9 @@ class InitialValueFinder:
                 if carepackage['lock'] is not None:
                     carepackage['lock'].acquire()
                 ai_model2.store_data(X_train=X_train, y_train=y_train)
+                length = ai_model.data_length()
+                if length > params['threshold'] and length % 200:
+                    ai_model.just_fit()
                 if carepackage['lock'] is not None:
                     carepackage['lock'].release()
 

@@ -618,6 +618,7 @@ def find_evolution(system,
         
         if numpy.all(numpy.abs(difference) <= check):
             if len(laststeps) >= 3 and solve_type == "ecc":
+                print('laststeps is ',laststeps)
                 A = [
                         [laststeps[-2][0],laststeps[-2][2],1],
                         [laststeps[-1][0],laststeps[-1][2],1],
@@ -626,14 +627,15 @@ def find_evolution(system,
                 B = [laststeps[-2][1],laststeps[-1][1],ecc_found]
                 
                 slope_min_difference = 0.1
-                slope_13 = (laststeps[-1][2]-laststeps[-3][2])/(laststeps[-1][0]-laststeps[-3][0])
+                slope_13 = (A[-1][1]-A[-3][1])/(A[-1][0]-A[-3][0])
                 print(slope_13)
-                slope_23 = (laststeps[-2][2]-laststeps[-3][2])/(laststeps[-2][0]-laststeps[-3][0])
+                slope_23 = (A[-2][1]-A[-3][1])/(A[-2][0]-A[-3][0])
                 print(slope_23)
                 slope_diff = numpy.abs(slope_13-slope_23)
                 if(slope_diff < slope_min_difference):
-                    trunk = laststeps[:-3]
+                    trunk = laststeps[:-2]
                     trunk.reverse()
+                    print('trunk is ',trunk)
                     new_i = numpy.nan
                     for i in range(len(trunk)):
                         slope_i = (trunk[-1][2]-trunk[i][2])/(trunk[-1][0]-trunk[i][0])
@@ -648,6 +650,7 @@ def find_evolution(system,
                     else:
                         print('Unable to find a fourth point sufficiently different from the three most recent points to avoid a degenerate solution.')
                         logger.warning('Needed fourth point but unable to find one.')
+                        #TODO: run another evolution to get the point we need
 
                 A = numpy.matrix(A)
                 B = numpy.matrix(B)

@@ -397,9 +397,7 @@ def find_evolution(system,
     """
 
     logger=logging.getLogger(__name__)
-    #laststep = [0.5,0.5,True]
-    laststep = [scipy.nan,scipy.nan,scipy.nan]
-    earlierstep = [scipy.nan,scipy.nan,scipy.nan]
+    laststeps = []
     past_initial = [scipy.nan,scipy.nan,scipy.nan]
     past_diffs = [scipy.nan,scipy.nan,scipy.nan]
 
@@ -447,8 +445,8 @@ def find_evolution(system,
                     logger.warning('Initial ecc: %f',ecc_i)
                     print('Invalid Initial Values')
                     print('Initial ecc: ',ecc_i)
-                    if not numpy.isnan(laststep[2]):
-                        porb_i = laststep[2] # Keep the error in porb the same as the previous step
+                    if not numpy.isnan(laststeps[-1][2]):
+                        porb_i = laststeps[-1][2] # Keep the error in porb the same as the previous step
                     else:
                         logger.error('We should never be here.')
                         raise ValueError("We should never be here.",0)
@@ -619,14 +617,41 @@ def find_evolution(system,
             check = [orbital_period_tolerance,obliquity_tolerance]
         
         if numpy.all(numpy.abs(difference) <= check):
-            if (not numpy.isnan(earlierstep[0])) and solve_type == "ecc":
-                A = numpy.matrix([
-                                    [earlierstep[0],earlierstep[2],1],
-                                    [laststep[0],laststep[2],1],
-                                    [ecc_i,porb_found,1]
-                                ])
-                B = numpy.matrix([earlierstep[1],laststep[1],ecc_found])
-                fit,residual,rnk,s = scipy.linalg.lstsq(A,B.T)
+            if len(laststeps) >= 3 and solve_type == "ecc":
+                A = [
+                        [laststeps[-2][0],laststeps[-2][2],1],
+                        [laststeps[-1][0],laststeps[-1][2],1],
+                        [ecc_i,porb_found,1]
+                    ]
+                B = [laststeps[-2][1],laststeps[-1][1],ecc_found]
+                
+                slope_min_difference = 0.1
+                slope_13 = (laststeps[-1][2]-laststeps[-3][2])/(laststeps[-1][0]-laststeps[-3][0])
+                print(slope_13)
+                slope_23 = (laststeps[-2][2]-laststeps[-3][2])/(laststeps[-2][0]-laststeps[-3][0])
+                print(slope_23)
+                slope_diff = numpy.abs(slope_13-slope_23)
+                if(slope_diff < slope_min_difference):
+                    trunk = laststeps[:-3]
+                    trunk.reverse()
+                    new_i = numpy.nan
+                    for i in range(len(trunk)):
+                        slope_i = (trunk[-1][2]-trunk[i][2])/(trunk[-1][0]-trunk[i][0])
+                        new_slope_diff = numpy.abs(slope_13 - slope_i)
+                        if new_slope_diff > slope_min_difference:
+                            print('Hurray for ',i)
+                            new_i = i
+                            break
+                    if not numpy.isnan(new_i):
+                        A.append([trunk[new_i][0],trunk[new_i][2],1])
+                        B.append(trunk[new_i][1])
+                    else:
+                        print('Unable to find a fourth point sufficiently different from the three most recent points to avoid a degenerate solution.')
+                        logger.warning('Needed fourth point but unable to find one.')
+
+                A = numpy.matrix(A)
+                B = numpy.matrix(B)
+                fit = scipy.linalg.lstsq(A,B.T)[0]
                 ehat_prime = [fit[0],ecc_i]
                 print('A is ',A)
                 print('B is ',B)
@@ -635,12 +660,7 @@ def find_evolution(system,
             print('ehat_prime is ',ehat_prime)
             raise ValueError("solver and errfunc() have found initial values with acceptable results",1,evolution,ehat_prime)
         else:
-            earlierstep[0] = laststep[0]
-            earlierstep[1] = laststep[1]
-            earlierstep[2] = laststep[2]
-            laststep[0] = ecc_i
-            laststep[1] = ecc_found
-            laststep[2] = porb_found
+            laststeps.append([ecc_i,ecc_found,porb_found])
             print('difference: ',difference)
             print('diff_square: ',diff_square)
             #logger.debug('diff_square: %f',diff_square)

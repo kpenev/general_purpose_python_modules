@@ -627,12 +627,22 @@ def find_evolution(system,
                 B = [laststeps[-2][1],laststeps[-1][1],ecc_found]
                 
                 slope_min_difference = 0.1
+                diff_min_difference = 1e-4
                 slope_13 = (A[-1][1]-A[-3][1])/(A[-1][0]-A[-3][0])
                 print(slope_13)
                 slope_23 = (A[-2][1]-A[-3][1])/(A[-2][0]-A[-3][0])
                 print(slope_23)
                 slope_diff = numpy.abs(slope_13-slope_23)
-                if(slope_diff < slope_min_difference):
+                diff_diff = (
+                                numpy.abs(A[-1][1]-A[-3][1]) < diff_min_difference
+                                or
+                                numpy.abs(A[-2][1]-A[-3][1]) < diff_min_difference
+                                or
+                                numpy.abs(A[-1][0]-A[-3][0]) < diff_min_difference
+                                or
+                                numpy.abs(A[-2][0]-A[-3][0]) < diff_min_difference
+                )
+                if(slope_diff < slope_min_difference or diff_diff):
                     trunk = laststeps[:-2]
                     trunk.reverse()
                     print('trunk is ',trunk)
@@ -640,7 +650,14 @@ def find_evolution(system,
                     for i in range(len(trunk)):
                         slope_i = (trunk[-1][2]-trunk[i][2])/(trunk[-1][0]-trunk[i][0])
                         new_slope_diff = numpy.abs(slope_13 - slope_i)
-                        if new_slope_diff > slope_min_difference:
+                        new_diff_diff = (
+                                            numpy.abs(trunk[-1][2]-trunk[i][2]) > diff_min_difference
+                                            and
+                                            numpy.abs(trunk[-1][0]-trunk[i][0]) > diff_min_difference
+                        )
+                        print('new_slope_diff is ',new_slope_diff)
+                        print('new_diff_diff is ',new_diff_diff)
+                        if new_slope_diff > slope_min_difference and new_diff_diff:
                             print('Hurray for ',i)
                             new_i = i
                             break

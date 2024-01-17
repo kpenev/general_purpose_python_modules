@@ -627,7 +627,7 @@ def find_evolution(system,
                 B = [laststeps[-2][1],laststeps[-1][1],ecc_found]
                 
                 slope_min_difference = 0.1
-                diff_min_difference = 1e-4
+                diff_min_difference = 1e-3
                 slope_13 = (A[-1][1]-A[-3][1])/(A[-1][0]-A[-3][0])
                 print(slope_13)
                 slope_12 = (A[-1][1]-A[-2][1])/(A[-1][0]-A[-2][0])
@@ -635,17 +635,17 @@ def find_evolution(system,
                 slope_diff = numpy.abs(slope_13-slope_12)
                 print(slope_diff)
                 diff_diff = (
-                                numpy.abs(A[-1][1]-A[-3][1]) < diff_min_difference
+                                (numpy.abs(A[-1][1]-A[-3][1]) < diff_min_difference
                                 or
-                                numpy.abs(A[-1][1]-A[-2][1]) < diff_min_difference
+                                numpy.abs(A[-1][1]-A[-2][1]) < diff_min_difference)
+                                and
+                                (numpy.abs(A[-1][0]-A[-3][0]) < diff_min_difference
                                 or
-                                numpy.abs(A[-1][0]-A[-3][0]) < diff_min_difference
-                                or
-                                numpy.abs(A[-1][0]-A[-2][0]) < diff_min_difference
+                                numpy.abs(A[-1][0]-A[-2][0]) < diff_min_difference)
                 )
                 print(diff_diff)
                 if(slope_diff < slope_min_difference or diff_diff):
-                    trunk = laststeps[:-2]
+                    trunk = laststeps[:-2] # Two instead of three because the most recent points haven't been added
                     trunk.reverse()
                     print('trunk is ',trunk)
                     new_i = numpy.nan
@@ -655,7 +655,7 @@ def find_evolution(system,
                         new_slope_diff = numpy.abs(slope_13 - slope_1i)
                         new_diff_diff = (
                                             numpy.abs(A[-1][1]-trunk[i][2]) > diff_min_difference
-                                            and
+                                            or
                                             numpy.abs(A[-1][0]-trunk[i][0]) > diff_min_difference
                         )
                         print('new_slope_diff is ',new_slope_diff)

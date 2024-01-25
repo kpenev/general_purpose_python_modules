@@ -628,49 +628,68 @@ def find_evolution(system,
                 
                 slope_min_difference = 0.1
                 diff_min_difference = 1e-3
-                slope_13 = (A[-1][1]-A[-3][1])/(A[-1][0]-A[-3][0])
-                print(slope_13)
-                slope_12 = (A[-1][1]-A[-2][1])/(A[-1][0]-A[-2][0])
-                print(slope_12)
-                slope_diff = numpy.abs(slope_13-slope_12)
-                print(slope_diff)
-                diff_diff = (
-                                (numpy.abs(A[-1][1]-A[-3][1]) < diff_min_difference
-                                or
-                                numpy.abs(A[-1][1]-A[-2][1]) < diff_min_difference)
-                                and
-                                (numpy.abs(A[-1][0]-A[-3][0]) < diff_min_difference
-                                or
-                                numpy.abs(A[-1][0]-A[-2][0]) < diff_min_difference)
-                )
-                print(diff_diff)
-                if(slope_diff < slope_min_difference or diff_diff):
-                    trunk = laststeps[:-2] # Two instead of three because the most recent points haven't been added
-                    trunk.reverse()
-                    print('trunk is ',trunk)
-                    new_i = numpy.nan
-                    for i in range(len(trunk)):
-                        slope_1i = (A[-1][1]-trunk[i][2])/(A[-1][0]-trunk[i][0])
-                        print(slope_1i)
-                        new_slope_diff = numpy.abs(slope_13 - slope_1i)
-                        new_diff_diff = (
-                                            numpy.abs(A[-1][1]-trunk[i][2]) > diff_min_difference
-                                            or
-                                            numpy.abs(A[-1][0]-trunk[i][0]) > diff_min_difference
-                        )
-                        print('new_slope_diff is ',new_slope_diff)
-                        print('new_diff_diff is ',new_diff_diff)
-                        if new_slope_diff > slope_min_difference and new_diff_diff:
-                            print('Hurray for ',i)
-                            new_i = i
-                            break
-                    if not numpy.isnan(new_i):
-                        A.append([trunk[new_i][0],trunk[new_i][2],1])
-                        B.append(trunk[new_i][1])
-                    else:
-                        print('Unable to find a fourth point sufficiently different from the three most recent points to avoid a degenerate solution.')
-                        logger.warning('Needed fourth point but unable to find one.')
+
+                #some max value > (1/2) * [x1*(y2 – y3 ) + x2*(y3 – y1 ) + x3*(y1 – y2)] > some min value
+                # if you have to go too far back then you'd run POET for specific points to pop out values and that would be your third point
+
+                new_i = 0
+                while not (1e-8 > numpy.abs((1/2) * (A[0][0]*(B[1] - B[2] ) + A[1][0]*(B[2] - B[0] ) + A[2][0]*(B[0] - B[1]))) > 1e-10):
+                    A = [
+                            [laststeps[-2-new_i][0],laststeps[-2-new_i][2],1],
+                            [laststeps[-1][0],laststeps[-1][2],1],
+                            [ecc_i,porb_found,1]
+                        ]
+                    B = [laststeps[-2-new_i][1],laststeps[-1][1],ecc_found]
+                    new_i += 1
+                    if (new_i+2) > len(laststeps) or new_i > 10:
+                        logger.warning('Unable to find a third point sufficiently different from the two most recent points to avoid a degenerate solution.')
+                        print('Unable to find a third point sufficiently different from the two most recent points to avoid a degenerate solution.')
+                        raise ValueError("Unable to find a third point sufficiently different from the two most recent points to avoid a degenerate solution.",0)
                         #TODO: run another evolution to get the point we need
+
+                # slope_13 = (A[-1][1]-A[-3][1])/(A[-1][0]-A[-3][0])
+                # print(slope_13)
+                # slope_12 = (A[-1][1]-A[-2][1])/(A[-1][0]-A[-2][0])
+                # print(slope_12)
+                # slope_diff = numpy.abs(slope_13-slope_12)
+                # print(slope_diff)
+                # diff_diff = (
+                #                 (numpy.abs(A[-1][1]-A[-3][1]) < diff_min_difference
+                #                 or
+                #                 numpy.abs(A[-1][1]-A[-2][1]) < diff_min_difference)
+                #                 and
+                #                 (numpy.abs(A[-1][0]-A[-3][0]) < diff_min_difference
+                #                 or
+                #                 numpy.abs(A[-1][0]-A[-2][0]) < diff_min_difference)
+                # )
+                # print(diff_diff)
+                # if(slope_diff < slope_min_difference or diff_diff):
+                #     trunk = laststeps[:-2] # Two instead of three because the most recent points haven't been added
+                #     trunk.reverse()
+                #     print('trunk is ',trunk)
+                #     new_i = numpy.nan
+                #     for i in range(len(trunk)):
+                #         slope_1i = (A[-1][1]-trunk[i][2])/(A[-1][0]-trunk[i][0])
+                #         print(slope_1i)
+                #         new_slope_diff = numpy.abs(slope_13 - slope_1i)
+                #         new_diff_diff = (
+                #                             numpy.abs(A[-1][1]-trunk[i][2]) > diff_min_difference
+                #                             or
+                #                             numpy.abs(A[-1][0]-trunk[i][0]) > diff_min_difference
+                #         )
+                #         print('new_slope_diff is ',new_slope_diff)
+                #         print('new_diff_diff is ',new_diff_diff)
+                #         if new_slope_diff > slope_min_difference and new_diff_diff:
+                #             print('Hurray for ',i)
+                #             new_i = i
+                #             break
+                #     if not numpy.isnan(new_i):
+                #         A.append([trunk[new_i][0],trunk[new_i][2],1])
+                #         B.append(trunk[new_i][1])
+                #     else:
+                #         print('Unable to find a fourth point sufficiently different from the three most recent points to avoid a degenerate solution.')
+                #         logger.warning('Needed fourth point but unable to find one.')
+                #         #TODO: run another evolution to get the point we need
 
                 A = numpy.matrix(A)
                 B = numpy.matrix(B)

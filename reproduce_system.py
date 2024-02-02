@@ -413,6 +413,19 @@ def find_evolution(system,
         eccentricity, and (potentially, if implemented) obliquity, given
         some specified initial conditions.
         """
+        def evolve_system(initial_conditions,thetype):
+            try:
+                evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom,
+                                                    thetype,
+                                                    carepackage)
+                return evolution
+            except AssertionError as err:
+                logger.exception('AssertionError: %s',err)
+                print('AssertionError: ',err)
+                return numpy.nan
+            except:
+                logger.exception('Something unknown went wrong while trying to evolve the system with the given parameters: %s',repr(initial_conditions))
+                raise
 
         porb_true = system.orbital_period.to_value("day")
         ecc_true  = system.eccentricity
@@ -569,18 +582,11 @@ def find_evolution(system,
         past_initial[1] = ecc_i
         past_initial[2] = obliq_i
         
-        try:
-            evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom,
-                                                thetype,
-                                                carepackage)
-        except AssertionError as err:
-            logger.exception('AssertionError: %s',err)
+        evolution = evolve_system(initial_conditions,thetype)
+        if not hasattr(evolution, 'eccentricity'):
             logger.debug('Returning the following values to the solver: %s',repr(error_out))
             print('Returning the following values to the solver: ',error_out)
             return error_out
-        except:
-            logger.exception('Something unknown went wrong while trying to evolve the system with the given parameters.')
-            raise
         porb_found = evolution.orbital_period[-1]
         ecc_found = evolution.eccentricity[-1]
         obliq_found = scipy.nan
@@ -619,90 +625,151 @@ def find_evolution(system,
         if numpy.all(numpy.abs(difference) <= check):
             if len(laststeps) >= 3 and solve_type == "ecc":
                 print('laststeps is ',laststeps)
+
+                delta_p = 0.01*porb_i#porb_found   #TODO: proper logger statements
+                alpha = 0.5
+                tri_max = 1e-5
+                tri_min = 1e-7
+                max_dist = 0.001
+                min_dist = 0.0001
+                second_point = []
+                third_point = []
+                acceptable_points = []
+                print('There are ',len(laststeps),' point(s) in laststeps.')
+                # For all points before the most recent point
+                for i in range(len(laststeps)):
+                    # Get the distance between the most recent point and the current point
+                    distance = numpy.sqrt((alpha*(ecc_found-laststeps[i][1]))**2 + (porb_found-laststeps[i][2])**2)
+                    print('Distance between ',laststeps[i],' and ',[ecc_i,ecc_found,porb_found,porb_i],' is ',distance)
+                    # If the point is neither too close to nor too far from the most recent point
+                    if max_dist > distance > min_dist:
+                        # Keep it
+                        acceptable_points.append(laststeps[i])
+                print('Removed ',len(laststeps)-len(acceptable_points),' point(s).')
+                # If no points remain after filtering
+                if len(acceptable_points) == 0:
+                    # Run two evolutions, one with small offset in initial period and one with small offset in initial eccentricity
+                    # Use the results for the two other points
+                    print('No acceptable points remain after filtering.')
+                    point_a_period = porb_i + delta_p
+                    point_b_ecc = ecc_i + (alpha*delta_p) #TODO: am I using alpha correctly?
+                    point_a_i = [point_a_period,ecc_i,obliq_i]
+                    print('point_a_i is ',point_a_i)
+                    evolution = evolve_system(point_a_i,'2d')
+                    if not hasattr(evolution, 'eccentricity'):
+                        raise AssertionError("Something went wrong trying to find a second point.",0)
+                    second_point = [ecc_i,evolution.eccentricity[-1],evolution.orbital_period[-1],point_a_period]
+                    print('second_point is ',second_point)
+                    point_b_i = [porb_i,point_b_ecc,obliq_i]
+                    print('point_b_i is ',point_b_i)
+                    evolution = evolve_system(point_b_i,'2d')
+                    if not hasattr(evolution, 'eccentricity'):
+                        raise AssertionError("Something went wrong trying to find a third point.",0)
+                    third_point = [point_b_ecc,evolution.eccentricity[-1],evolution.orbital_period[-1],porb_i]
+                    print('third_point is ',third_point)
+                # Otherwise, points did remain, so let's work with that
+                else:
+                    # For all acceptable points before the most recent point i
+                    print('Acceptable points remain after filtering.')
+                    acceptable_points.reverse()
+                    print('Acceptable points are ',acceptable_points)
+                    breakloop = False
+                    i = 0
+                    while not breakloop and i < len(acceptable_points):
+                        # For all acceptable points after point i (j)
+                        for j in range(i+1,len(acceptable_points)):
+                            # If the resulting triangle area (in ef vs ei) is acceptable
+                            print('Checking triangle area for ',acceptable_points[i],' and ',acceptable_points[j])
+                            print('Triangle area is ',(1/2) * (
+                                ecc_i*(acceptable_points[i][1] - acceptable_points[j][1] )
+                                +
+                                acceptable_points[i][0]*(acceptable_points[j][1] - ecc_found )
+                                +
+                                acceptable_points[j][0]*(ecc_found - acceptable_points[i][1])
+                                ))
+                            if (tri_max > numpy.abs((1/2) * (
+                                ecc_i*(acceptable_points[i][1] - acceptable_points[j][1] )
+                                +
+                                acceptable_points[i][0]*(acceptable_points[j][1] - ecc_found )
+                                +
+                                acceptable_points[j][0]*(ecc_found - acceptable_points[i][1])
+                                )) > tri_min
+                            ):
+                                # Use the results for the two other points
+                                print('Triangle area is acceptable.')
+                                second_point = acceptable_points[i]
+                                print('second_point is ',second_point)
+                                third_point = acceptable_points[j]
+                                print('third_point is ',third_point)
+                                # Break out of the loop
+                                breakloop = True
+                                break
+                        i += 1
+                    # If we don't have two identified points
+                    print('second_point is ',second_point)
+                    print('third_point is ',third_point)
+                    if len(second_point) == 0 or len(third_point) == 0:
+                        # We're going to be working in ei,pi phase space instead of ei,pf #TODO: make sure you're doing ei,pf elsewhere
+                        print('Unable to find two points that avoid a degenerate solution.')
+                        # Grab most recent acceptable point
+                        second_point = acceptable_points[0]
+                        print('second_point is ',second_point)
+                        # Find another point perpendicular to the line between the most recent acceptable point and the most recent point (using initial values)
+                        ei_two = second_point[0]
+                        pi_two = second_point[3]
+                        distance = numpy.sqrt((alpha*(ecc_i-ei_two))**2 + (porb_i-pi_two)**2)
+                        print('distance is ',distance)
+                        #theta = numpy.arcsin(alpha*(ecc_i-ei_two)/distance)
+                        #print('theta is ',theta)
+                        del_e = alpha*(ei_two-ecc_i)
+                        del_p = pi_two-porb_i
+                        print('Delta e is ',del_e)
+                        print('Delta p is ',del_p)
+                        ei_three = ecc_i + del_p / alpha
+                        pi_three = porb_i - del_e
+                        print('ei_three is ',ei_three,' and pi_three is ',pi_three)
+                        print('New distance is ',numpy.sqrt((alpha*(ei_three-ecc_i))**2 + (pi_three-porb_i)**2))
+                        # Run an evolution for that point
+                        # TODO: Check if this is a valid point? If I've locked it to actually be perpendicular, then it should be always be a small enough
+                        #       difference to be fine, right?
+                        point_c_i = [pi_three,ei_three,obliq_i]
+                        evolution = evolve_system(point_c_i,'2d')
+                        if not hasattr(evolution, 'eccentricity'):
+                            raise AssertionError("Something went wrong trying to find a third point.",0)
+                        # Use the results for the third point
+                        third_point = [ei_three,evolution.eccentricity[-1],evolution.orbital_period[-1],pi_three]
+                        print('third_point is ',third_point)
+                # Final check to make sure the triangle area is acceptable
+                print('second_point is ',second_point)
+                print('third_point is ',third_point)
                 A = [
-                        [laststeps[-2][0],laststeps[-2][2],1],
-                        [laststeps[-1][0],laststeps[-1][2],1],
-                        [ecc_i,porb_found,1]
+                        [ecc_i,porb_found,1],
+                        [second_point[0],second_point[2],1],
+                        [third_point[0],third_point[2],1]
                     ]
-                B = [laststeps[-2][1],laststeps[-1][1],ecc_found]
-                
-                slope_min_difference = 0.1
-                diff_min_difference = 1e-3
+                B = [ecc_found,second_point[1],third_point[1]]
+                print('A is ',A)
+                print('B is ',B)
+                print('Triangle area is ',(1/2) * (A[0][0]*(B[1] - B[2] ) + A[1][0]*(B[2] - B[0] ) + A[2][0]*(B[0] - B[1])))
+                #if not (tri_max > numpy.abs((1/2) * (A[0][0]*(B[1] - B[2] ) + A[1][0]*(B[2] - B[0] ) + A[2][0]*(B[0] - B[1]))) > tri_min):
+                #    print('Unable to find two points that avoid a degenerate solution.')             TODO
+                #    raise ValueError("Unable to find two points that avoid a degenerate solution.",0)TODO
 
-                #some max value > (1/2) * [x1*(y2 – y3 ) + x2*(y3 – y1 ) + x3*(y1 – y2)] > some min value
-                # if you have to go too far back then you'd run POET for specific points to pop out values and that would be your third point
-
-                new_i = 0
-                while not (1e-8 > numpy.abs((1/2) * (A[0][0]*(B[1] - B[2] ) + A[1][0]*(B[2] - B[0] ) + A[2][0]*(B[0] - B[1]))) > 1e-10):
-                    A = [
-                            [laststeps[-2-new_i][0],laststeps[-2-new_i][2],1],
-                            [laststeps[-1][0],laststeps[-1][2],1],
-                            [ecc_i,porb_found,1]
-                        ]
-                    B = [laststeps[-2-new_i][1],laststeps[-1][1],ecc_found]
-                    new_i += 1
-                    if (new_i+2) > len(laststeps) or new_i > 10:
-                        logger.warning('Unable to find a third point sufficiently different from the two most recent points to avoid a degenerate solution.')
-                        print('Unable to find a third point sufficiently different from the two most recent points to avoid a degenerate solution.')
-                        raise ValueError("Unable to find a third point sufficiently different from the two most recent points to avoid a degenerate solution.",0)
-                        #TODO: run another evolution to get the point we need
-
-                # slope_13 = (A[-1][1]-A[-3][1])/(A[-1][0]-A[-3][0])
-                # print(slope_13)
-                # slope_12 = (A[-1][1]-A[-2][1])/(A[-1][0]-A[-2][0])
-                # print(slope_12)
-                # slope_diff = numpy.abs(slope_13-slope_12)
-                # print(slope_diff)
-                # diff_diff = (
-                #                 (numpy.abs(A[-1][1]-A[-3][1]) < diff_min_difference
-                #                 or
-                #                 numpy.abs(A[-1][1]-A[-2][1]) < diff_min_difference)
-                #                 and
-                #                 (numpy.abs(A[-1][0]-A[-3][0]) < diff_min_difference
-                #                 or
-                #                 numpy.abs(A[-1][0]-A[-2][0]) < diff_min_difference)
-                # )
-                # print(diff_diff)
-                # if(slope_diff < slope_min_difference or diff_diff):
-                #     trunk = laststeps[:-2] # Two instead of three because the most recent points haven't been added
-                #     trunk.reverse()
-                #     print('trunk is ',trunk)
-                #     new_i = numpy.nan
-                #     for i in range(len(trunk)):
-                #         slope_1i = (A[-1][1]-trunk[i][2])/(A[-1][0]-trunk[i][0])
-                #         print(slope_1i)
-                #         new_slope_diff = numpy.abs(slope_13 - slope_1i)
-                #         new_diff_diff = (
-                #                             numpy.abs(A[-1][1]-trunk[i][2]) > diff_min_difference
-                #                             or
-                #                             numpy.abs(A[-1][0]-trunk[i][0]) > diff_min_difference
-                #         )
-                #         print('new_slope_diff is ',new_slope_diff)
-                #         print('new_diff_diff is ',new_diff_diff)
-                #         if new_slope_diff > slope_min_difference and new_diff_diff:
-                #             print('Hurray for ',i)
-                #             new_i = i
-                #             break
-                #     if not numpy.isnan(new_i):
-                #         A.append([trunk[new_i][0],trunk[new_i][2],1])
-                #         B.append(trunk[new_i][1])
-                #     else:
-                #         print('Unable to find a fourth point sufficiently different from the three most recent points to avoid a degenerate solution.')
-                #         logger.warning('Needed fourth point but unable to find one.')
-                #         #TODO: run another evolution to get the point we need
-
+                # Perform least squares fit to find ehat_prime
+                print('Performing least squares fit to find ehat_prime...')
                 A = numpy.matrix(A)
                 B = numpy.matrix(B)
                 fit = scipy.linalg.lstsq(A,B.T)[0]
                 ehat_prime = [fit[0],ecc_i]
                 print('A is ',A)
                 print('B is ',B)
+                print('ehat_prime is ',ehat_prime)
             else:
                 ehat_prime = [scipy.nan,scipy.nan]
             print('ehat_prime is ',ehat_prime)
             raise ValueError("solver and errfunc() have found initial values with acceptable results",1,evolution,ehat_prime)
         else:
-            laststeps.append([ecc_i,ecc_found,porb_found])
+            laststeps.append([ecc_i,ecc_found,porb_found,porb_i])
             print('difference: ',difference)
             print('diff_square: ',diff_square)
             #logger.debug('diff_square: %f',diff_square)
@@ -710,7 +777,7 @@ def find_evolution(system,
             #    logger.debug('difference: %f',difference)
             #    return difference
             return difference#diff_square
-        #TODO make sure last three points aren't all on a line?
+
     def get_period_range(initial_eccentricity):
         """
         Returns a range of initial orbital periods within which the

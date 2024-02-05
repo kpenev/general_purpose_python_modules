@@ -407,7 +407,8 @@ def find_evolution(system,
                 orbital_period_tolerance,
                 eccentricity_tolerance,
                 obliquity_tolerance,
-                solve_type):
+                solve_type,
+                search_porb = None):
         """
         Returns differences between initial and found orbital period,
         eccentricity, and (potentially, if implemented) obliquity, given
@@ -422,12 +423,12 @@ def find_evolution(system,
             except AssertionError as err:
                 logger.exception('AssertionError: %s',err)
                 print('AssertionError: ',err)
-                return numpy.nan
+                return scipy.nan
             except:
                 logger.exception('Something unknown went wrong while trying to evolve the system with the given parameters: %s',repr(initial_conditions))
                 raise
 
-        porb_true = system.orbital_period.to_value("day")
+        porb_true = search_porb if search_porb is not None else system.orbital_period.to_value("day")
         ecc_true  = system.eccentricity
         #obliq_true = system.obliquity
 
@@ -438,15 +439,15 @@ def find_evolution(system,
         logger.debug('porb_sign: %f',porb_sign)
         logger.debug('ecc_sign: %f',ecc_sign)
 
-        dL = numpy.nan
+        dL = scipy.nan
         if solve_type == "porb":
-            error_out = numpy.nan
+            error_out = scipy.nan
             porb_i = variable_conditions
             ecc_i  = fixed_conditions[0]
             obliq_i = fixed_conditions[1]
             thetype = '1d'
         else:
-            error_out = [numpy.nan,numpy.nan]
+            error_out = [scipy.nan,scipy.nan]
             if solve_type == "ecc":
                 thetype = '2d'
                 dL = variable_conditions[0]
@@ -626,20 +627,20 @@ def find_evolution(system,
             if len(laststeps) >= 3 and solve_type == "ecc":
                 print('laststeps is ',laststeps)
 
-                delta_p = 0.01*porb_i#porb_found   #TODO: proper logger statements
+                delta_p = 0.01*porb_found   #TODO: proper logger statements
                 alpha = 0.5
-                tri_max = 1e-5
-                tri_min = 1e-7
-                max_dist = 0.001
-                min_dist = 0.0001
+                tri_max = 0.25
+                tri_min = 5e-4
+                max_dist = 0.5
+                min_dist = 0.001
                 second_point = []
                 third_point = []
                 acceptable_points = []
                 print('There are ',len(laststeps),' point(s) in laststeps.')
                 # For all points before the most recent point
                 for i in range(len(laststeps)):
-                    # Get the distance between the most recent point and the current point
-                    distance = numpy.sqrt((alpha*(ecc_found-laststeps[i][1]))**2 + (porb_found-laststeps[i][2])**2)
+                    # Get the distance between the most recent point and the current point in ei,pf space
+                    distance = numpy.sqrt((alpha*(ecc_i-laststeps[i][0]))**2 + (porb_found-laststeps[i][2])**2)
                     print('Distance between ',laststeps[i],' and ',[ecc_i,ecc_found,porb_found,porb_i],' is ',distance)
                     # If the point is neither too close to nor too far from the most recent point
                     if max_dist > distance > min_dist:
@@ -648,24 +649,94 @@ def find_evolution(system,
                 print('Removed ',len(laststeps)-len(acceptable_points),' point(s).')
                 # If no points remain after filtering
                 if len(acceptable_points) == 0:
-                    # Run two evolutions, one with small offset in initial period and one with small offset in initial eccentricity
-                    # Use the results for the two other points
+                    # Find two points in ei,pf space, and solve to find the initial period which
+                    # results in the new final period, so that we can use the new final eccentricity
+                    # We want larger period and smaller eccentricity vs. the most recent point
                     print('No acceptable points remain after filtering.')
-                    point_a_period = porb_i + delta_p
-                    point_b_ecc = ecc_i + (alpha*delta_p) #TODO: am I using alpha correctly?
-                    point_a_i = [point_a_period,ecc_i,obliq_i]
-                    print('point_a_i is ',point_a_i)
-                    evolution = evolve_system(point_a_i,'2d')
-                    if not hasattr(evolution, 'eccentricity'):
-                        raise AssertionError("Something went wrong trying to find a second point.",0)
-                    second_point = [ecc_i,evolution.eccentricity[-1],evolution.orbital_period[-1],point_a_period]
+                    point_a_period = porb_found + delta_p
+                    print('point_a_period is ',point_a_period)
+                    print('Solving for initial period that results in the new final period, so that we can find the new final eccentricity.')
+                    porb_min, porb_max = get_period_range(ecc_i,point_a_period)
+                    print('porb_min is ',porb_min)
+                    print('porb_max is ',porb_max)
+                    try:
+                        scipy.optimize.brentq(
+                            errfunc,
+                            porb_min,
+                            porb_max,
+                            xtol=orbital_period_tolerance/100,
+                            rtol=orbital_period_tolerance/100,
+                            maxiter=max_iterations,
+                            args=([ecc_i,obliq_i],
+                                    initial_secondary_angmom,
+                                    orbital_period_tolerance,
+                                    eccentricity_tolerance,
+                                    obliquity_tolerance,
+                                    "porb",
+                                    point_a_period),
+                            full_output=True
+                        )
+                    except ValueError as err:
+                        try:
+                            length_of_args = len(err.args)
+                        except:
+                            # If that doesn't work then it's not one of our custom errors, so something weird happened
+                            logger.exception('err.args had no len()')
+                            length_of_args = 0
+                        if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
+                            # Use the results for the third point
+                            second_point = [ecc_i,err.args[2].eccentricity[-1],point_a_period,err.args[2].orbital_period[0]]
+                        else:
+                            logger.exception('Solver crashed. Error: %s',err)
+                            raise
+                    except:
+                        logger.exception('Solver crashed.')
+                        raise
                     print('second_point is ',second_point)
-                    point_b_i = [porb_i,point_b_ecc,obliq_i]
-                    print('point_b_i is ',point_b_i)
-                    evolution = evolve_system(point_b_i,'2d')
-                    if not hasattr(evolution, 'eccentricity'):
-                        raise AssertionError("Something went wrong trying to find a third point.",0)
-                    third_point = [point_b_ecc,evolution.eccentricity[-1],evolution.orbital_period[-1],porb_i]
+
+                    point_b_ecc = ecc_i - (alpha*delta_p)
+                    print('point_b_ecc is ',point_b_ecc)
+                    if point_b_ecc < 0:
+                        print('point_b_ecc is negative. Setting to 0. Final eccentricity must also be zero.')
+                        point_b_ecc = 0
+                        third_point = [0,0,porb_found,scipy.nan]
+                    else:
+                        porb_min, porb_max = get_period_range(point_b_ecc,porb_found)
+                        print('porb_min is ',porb_min)
+                        print('porb_max is ',porb_max)
+                        try:
+                            scipy.optimize.brentq(
+                                errfunc,
+                                porb_min,
+                                porb_max,
+                                xtol=orbital_period_tolerance/100,
+                                rtol=orbital_period_tolerance/100,
+                                maxiter=max_iterations,
+                                args=([point_b_ecc,obliq_i],
+                                        initial_secondary_angmom,
+                                        orbital_period_tolerance,
+                                        eccentricity_tolerance,
+                                        obliquity_tolerance,
+                                        "porb",
+                                        porb_found),
+                                full_output=True
+                            )
+                        except ValueError as err:
+                            try:
+                                length_of_args = len(err.args)
+                            except:
+                                # If that doesn't work then it's not one of our custom errors, so something weird happened
+                                logger.exception('err.args had no len()')
+                                length_of_args = 0
+                            if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
+                                # Use the results for the third point
+                                third_point = [point_b_ecc,err.args[2].eccentricity[-1],porb_found,err.args[2].orbital_period[0]]
+                            else:
+                                logger.exception('Solver crashed. Error: %s',err)
+                                raise
+                        except:
+                            logger.exception('Solver crashed.')
+                            raise
                     print('third_point is ',third_point)
                 # Otherwise, points did remain, so let's work with that
                 else:
@@ -709,35 +780,73 @@ def find_evolution(system,
                     print('second_point is ',second_point)
                     print('third_point is ',third_point)
                     if len(second_point) == 0 or len(third_point) == 0:
-                        # We're going to be working in ei,pi phase space instead of ei,pf #TODO: make sure you're doing ei,pf elsewhere
                         print('Unable to find two points that avoid a degenerate solution.')
                         # Grab most recent acceptable point
                         second_point = acceptable_points[0]
                         print('second_point is ',second_point)
-                        # Find another point perpendicular to the line between the most recent acceptable point and the most recent point (using initial values)
+                        # Find another point perpendicular to the line between the most recent acceptable point and the most recent point
+                        # in ei,pf space
                         ei_two = second_point[0]
-                        pi_two = second_point[3]
-                        distance = numpy.sqrt((alpha*(ecc_i-ei_two))**2 + (porb_i-pi_two)**2)
+                        pf_two = second_point[2]
+                        distance = numpy.sqrt((alpha*(ecc_i-ei_two))**2 + (porb_found-pf_two)**2)
                         print('distance is ',distance)
-                        #theta = numpy.arcsin(alpha*(ecc_i-ei_two)/distance)
-                        #print('theta is ',theta)
                         del_e = alpha*(ei_two-ecc_i)
-                        del_p = pi_two-porb_i
+                        del_p = pf_two-porb_found
                         print('Delta e is ',del_e)
                         print('Delta p is ',del_p)
-                        ei_three = ecc_i + del_p / alpha
-                        pi_three = porb_i - del_e
-                        print('ei_three is ',ei_three,' and pi_three is ',pi_three)
-                        print('New distance is ',numpy.sqrt((alpha*(ei_three-ecc_i))**2 + (pi_three-porb_i)**2))
-                        # Run an evolution for that point
-                        # TODO: Check if this is a valid point? If I've locked it to actually be perpendicular, then it should be always be a small enough
-                        #       difference to be fine, right?
-                        point_c_i = [pi_three,ei_three,obliq_i]
-                        evolution = evolve_system(point_c_i,'2d')
-                        if not hasattr(evolution, 'eccentricity'):
-                            raise AssertionError("Something went wrong trying to find a third point.",0)
-                        # Use the results for the third point
-                        third_point = [ei_three,evolution.eccentricity[-1],evolution.orbital_period[-1],pi_three]
+                        # Always choose the new target coordinates with largest p_f
+                        rot_sign = -1 if del_e > 0 else 1
+                        ei_three = ecc_i + rot_sign * del_p / alpha
+                        pf_three = porb_found - rot_sign * del_e
+                        if ei_three < 0:
+                            ei_three = 0
+                            print('ei_three is negative. Setting to 0. Final eccentricity must also be zero.')
+                            third_point = [0,0,porb_found,scipy.nan]
+                        else:
+                            if ei_three > 0.8:
+                                print('ei_three is ',ei_three,' which is too large. Setting to 0.8.')
+                                ei_three = 0.8
+                            print('ei_three is ',ei_three,' and pf_three is ',pf_three)
+                            print('New distance is ',numpy.sqrt((alpha*(ei_three-ecc_i))**2 + (pf_three-porb_found)**2))
+                            # Solve for initial period that results in the new final period, so that we can
+                            # find the new final eccentricity
+                            print('Solving for initial period that results in the new final period, so that we can find the new final eccentricity.')
+                            porb_min, porb_max = get_period_range(ei_three,pf_three)
+                            print('porb_min is ',porb_min)
+                            print('porb_max is ',porb_max)
+                            try:
+                                scipy.optimize.brentq(
+                                    errfunc,
+                                    porb_min,
+                                    porb_max,
+                                    xtol=orbital_period_tolerance/100,
+                                    rtol=orbital_period_tolerance/100,
+                                    maxiter=max_iterations,
+                                    args=([ei_three,obliq_i],
+                                            initial_secondary_angmom,
+                                            orbital_period_tolerance,
+                                            eccentricity_tolerance,
+                                            obliquity_tolerance,
+                                            "porb",
+                                            pf_three),
+                                    full_output=True
+                                )
+                            except ValueError as err:
+                                try:
+                                    length_of_args = len(err.args)
+                                except:
+                                    # If that doesn't work then it's not one of our custom errors, so something weird happened
+                                    logger.exception('err.args had no len()')
+                                    length_of_args = 0
+                                if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
+                                    # Use the results for the third point
+                                    third_point = [ei_three,err.args[2].eccentricity[-1],pf_three,err.args[2].orbital_period[0]]
+                                else:
+                                    logger.exception('Solver crashed. Error: %s',err)
+                                    raise
+                            except:
+                                logger.exception('Solver crashed.')
+                                raise
                         print('third_point is ',third_point)
                 # Final check to make sure the triangle area is acceptable
                 print('second_point is ',second_point)
@@ -778,7 +887,7 @@ def find_evolution(system,
             #    return difference
             return difference#diff_square
 
-    def get_period_range(initial_eccentricity):
+    def get_period_range(initial_eccentricity,search_porb = None):
         """
         Returns a range of initial orbital periods within which the
         difference between the found and correct final periods crosses
@@ -788,7 +897,8 @@ def find_evolution(system,
         period_search_factor = 1.1
         max_porb_initial = 200.0
         porb_min, porb_max = scipy.nan, scipy.nan
-        porb_initial = system.orbital_period.to_value("day") * 3 #TODO: test this
+        porb_correct = search_porb if search_porb is not None else system.orbital_period.to_value("day")
+        porb_initial = porb_correct * 3
         obliq_i = 0.0
         try:
             porb = value_finder.try_system([porb_initial,initial_eccentricity,obliq_i],initial_secondary_angmom,
@@ -802,7 +912,7 @@ def find_evolution(system,
             raise
         if numpy.isnan(porb):
             porb=0.0
-        porb_error = porb - system.orbital_period.to_value("day")
+        porb_error = porb - porb_correct
         guess_porb_error = porb_error
         step = (period_search_factor if guess_porb_error < 0
                 else 1.0 / period_search_factor)
@@ -856,7 +966,7 @@ def find_evolution(system,
             logger.debug('After evolution: porb = %s', repr(porb))
             if numpy.isnan(porb):
                 porb=0.0
-            porb_error = porb - system.orbital_period.to_value("day")
+            porb_error = porb - porb_correct
 
         if porb==0.0:
             logger.exception("porb is 0")

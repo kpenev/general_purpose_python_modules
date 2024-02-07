@@ -424,7 +424,6 @@ def find_evolution(system,
             else: #TODO
                 logger.debug('Target porb, obliq: %f, OBLIQUITY NOT YET HANDLED',porb_true)
                 print('Target porb, obliq: ',porb_true,' OBLIQUITY NOT YET HANDLED')
-        
         def get_initial_values():
             dL = scipy.nan
             if solve_type == "porb":
@@ -655,9 +654,8 @@ def find_evolution(system,
         
         initial_conditions = [porb_i,ecc_i,obliq_i]
 
-        # Sanity checks
         error = sanity_checks()
-        if not error is None:
+        if error is not None:
             return error
         
         try:
@@ -673,15 +671,13 @@ def find_evolution(system,
         except:
             logger.exception('Something unknown went wrong while trying to evolve the system with the given parameters: %s',repr(initial_conditions))
             raise
-        porb_found = evolution.orbital_period[-1]
-        ecc_found = evolution.eccentricity[-1]
+        porb_found, ecc_found = evolution.orbital_period[-1], evolution.eccentricity[-1]
         obliq_found = scipy.nan
 
         logger.debug('Found porb, ecc, obliq: %f, %f, %f',porb_found,ecc_found,obliq_found)
         logger.debug('Target porb, ecc, obliq: %f, %f, OBLIQUITY NOT YET HANDLED',porb_true,ecc_true)
 
-        porb_diff = porb_found-porb_true
-        ecc_diff = ecc_found-ecc_true
+        porb_diff, ecc_diff = porb_found-porb_true, ecc_found-ecc_true
         past_diffs[0] = porb_diff / numpy.abs(porb_diff)
         past_diffs[1] = ecc_diff / numpy.abs(ecc_diff)
 

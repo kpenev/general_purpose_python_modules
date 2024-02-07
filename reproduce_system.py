@@ -478,9 +478,9 @@ def find_evolution(system,
                 while not breakloop and i < len(acceptable_points):
                     # For all acceptable points after point i (j)
                     for j in range(i+1,len(acceptable_points)):
-                        # If the resulting triangle area (in ef vs ei) is acceptable
+                        # If the resulting triangle area (in ei vs pf) is acceptable
                         print('Checking triangle area for ',acceptable_points[i],' and ',acceptable_points[j])
-                        tri_area = triangle_area([ecc_i,acceptable_points[i][0],acceptable_points[j][0]],[ecc_found,acceptable_points[i][1],acceptable_points[j][1]])
+                        tri_area = triangle_area([ecc_i,acceptable_points[i][0],acceptable_points[j][0]],[porb_found,acceptable_points[i][2],acceptable_points[j][2]])
                         print('Triangle area is ',tri_area)
                         if (tri_max > numpy.abs(tri_area) > tri_min
                         ):
@@ -542,7 +542,7 @@ def find_evolution(system,
             B = [ecc_found,second_point[1],third_point[1]]
             print('A is ',A)
             print('B is ',B)
-            tri_area = triangle_area([row[0] for row in A],B)
+            tri_area = triangle_area([row[0] for row in A],[row[1] for row in A])
             print('Triangle area is ',tri_area)
             #if not (tri_max > numpy.abs(tri_area) > tri_min):
             #    print('Unable to find two points that avoid a degenerate solution.')             TODO

@@ -425,7 +425,62 @@ def find_evolution(system,
                 logger.debug('Target porb, obliq: %f, OBLIQUITY NOT YET HANDLED',porb_true)
                 print('Target porb, obliq: ',porb_true,' OBLIQUITY NOT YET HANDLED')
         
-        #def get_initial_values():
+        def get_initial_values():
+            dL = scipy.nan
+            if solve_type == "porb":
+                error_out = scipy.nan
+                porb_i = variable_conditions
+                ecc_i  = fixed_conditions[0]
+                obliq_i = fixed_conditions[1]
+                thetype = '1d'
+            else:
+                error_out = [scipy.nan,scipy.nan]
+                if solve_type == "ecc":
+                    thetype = '2d'
+                    dL = variable_conditions[0]
+                    ecc_i  = variable_conditions[1]
+                    obliq_i = fixed_conditions
+                    print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)
+                    # If ecc_i is weird we're going to catch it later; for now,
+                    # keep the error in porb the same as the previous step
+                    porb_i = laststeps[-1][2] if (ecc_i < 0 or ecc_i > 0.8) else \
+                        unchange_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)[0]
+                    error_out = [(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]
+                elif solve_type == "obliq": #TODO: change of variables?
+                    porb_i = variable_conditions[0]
+                    ecc_i  = fixed_conditions
+                    obliq_i = variable_conditions[1]
+                else:
+                    raise ValueError("Invalid solve type",0)
+            return dL,porb_i,ecc_i,obliq_i,thetype,error_out
+        def sanity_checks():
+            error_out = None
+            if (numpy.isnan(ecc_i) or numpy.iscomplex(ecc_i) or 
+                numpy.isnan(porb_i) or numpy.iscomplex(porb_i) or 
+                numpy.isnan(obliq_i) or numpy.iscomplex(obliq_i)): # TODO: Obliquity not implemented
+                logger.warning('ecc_i, porb_i, or obliq_i is nan or imaginary: %f,%f,%f',
+                            ecc_i,porb_i,obliq_i)
+                porb_wrong = porb_sign * numpy.inf
+                ecc_wrong = ecc_sign * numpy.inf
+                obliq_wrong = numpy.inf
+                wrong = porb_wrong if solve_type == "porb" else [porb_wrong,ecc_wrong] if solve_type == "ecc" else [porb_wrong,obliq_i-3.0]
+                logger.debug('Returning the following value(s) to the solver: %s',repr(wrong))
+                print('Returning the following values to the solver: ',wrong)
+                report_target()
+                return wrong
+            if (ecc_i < 0 or ecc_i > 0.8) or (porb_i < 0) or (obliq_i < 0 or obliq_i > 180):
+                logger.warning('Invalid Initial Value(s)')
+                logger.warning('Initial porb, ecc, obliq: %f, %f, %f',porb_i,ecc_i,obliq_i)
+                print('Invalid Initial Value(s)')
+                print('Initial porb, ecc, obliq: ',porb_i,ecc_i,obliq_i)
+                invalid = (porb_i.real-porb_true)*porb_sign if solve_type == "porb" else \
+                            error_out if solve_type == "ecc" else \
+                            [porb_i.real-porb_true,obliq_i-3.0]
+                logger.debug('Returning the following value(s) to the solver: %s',repr(invalid))
+                print('Returning the following values to the solver: ',invalid)
+                report_target()
+                return invalid
+            return error_out
 
         def find_ehat_prime():
             def generate_points():
@@ -446,6 +501,8 @@ def find_evolution(system,
                 print('third_point is ',third_point)
                 return second_point,third_point
             def search_for_points():
+                second_point = []
+                third_point = []
                 breakloop = False
                 i = 0
                 while not breakloop and i < len(acceptable_points):
@@ -583,33 +640,7 @@ def find_evolution(system,
         logger.debug('porb_sign: %f',porb_sign)
         logger.debug('ecc_sign: %f',ecc_sign)
 
-        #dL,porb_i,ecc_i,obliq_i,thetype,error_out = get_initial_values()
-        dL = scipy.nan
-        if solve_type == "porb":
-            error_out = scipy.nan
-            porb_i = variable_conditions
-            ecc_i  = fixed_conditions[0]
-            obliq_i = fixed_conditions[1]
-            thetype = '1d'
-        else:
-            error_out = [scipy.nan,scipy.nan]
-            if solve_type == "ecc":
-                thetype = '2d'
-                dL = variable_conditions[0]
-                ecc_i  = variable_conditions[1]
-                obliq_i = fixed_conditions
-                print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)
-                # If ecc_i is weird we're going to catch it later; for now,
-                # keep the error in porb the same as the previous step
-                porb_i = laststeps[-1][2] if (ecc_i < 0 or ecc_i > 0.8) else \
-                    unchange_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)[0]
-                error_out = [(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]
-            elif solve_type == "obliq": #TODO: change of variables?
-                porb_i = variable_conditions[0]
-                ecc_i  = fixed_conditions
-                obliq_i = variable_conditions[1]
-            else:
-                raise ValueError("Invalid solve type",0)
+        dL,porb_i,ecc_i,obliq_i,thetype,error_out = get_initial_values()
             
         logger.debug('Here are the input values the solver is trying.')
         logger.debug('porb_i: %f',porb_i)
@@ -625,31 +656,9 @@ def find_evolution(system,
         initial_conditions = [porb_i,ecc_i,obliq_i]
 
         # Sanity checks
-        if (numpy.isnan(ecc_i) or numpy.iscomplex(ecc_i) or 
-            numpy.isnan(porb_i) or numpy.iscomplex(porb_i) or 
-            numpy.isnan(obliq_i) or numpy.iscomplex(obliq_i)): # TODO: Obliquity not implemented
-            logger.warning('ecc_i, porb_i, or obliq_i is nan or imaginary: %f,%f,%f',
-                           ecc_i,porb_i,obliq_i)
-            porb_wrong = porb_sign * numpy.inf
-            ecc_wrong = ecc_sign * numpy.inf
-            obliq_wrong = numpy.inf
-            wrong = porb_wrong if solve_type == "porb" else [porb_wrong,ecc_wrong] if solve_type == "ecc" else [porb_wrong,obliq_i-3.0]
-            logger.debug('Returning the following value(s) to the solver: %s',repr(wrong))
-            print('Returning the following values to the solver: ',wrong)
-            report_target()
-            return wrong
-        if (ecc_i < 0 or ecc_i > 0.8) or (porb_i < 0) or (obliq_i < 0 or obliq_i > 180):
-            logger.warning('Invalid Initial Value(s)')
-            logger.warning('Initial porb, ecc, obliq: %f, %f, %f',porb_i,ecc_i,obliq_i)
-            print('Invalid Initial Value(s)')
-            print('Initial porb, ecc, obliq: ',porb_i,ecc_i,obliq_i)
-            invalid = (porb_i.real-porb_true)*porb_sign if solve_type == "porb" else \
-                        error_out if solve_type == "ecc" else \
-                        [porb_i.real-porb_true,obliq_i-3.0]
-            logger.debug('Returning the following value(s) to the solver: %s',repr(invalid))
-            print('Returning the following values to the solver: ',invalid)
-            report_target()
-            return invalid
+        error = sanity_checks()
+        if not error is None:
+            return error
         
         try:
             evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom,

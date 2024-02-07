@@ -425,33 +425,10 @@ def find_evolution(system,
                 logger.debug('Target porb, obliq: %f, OBLIQUITY NOT YET HANDLED',porb_true)
                 print('Target porb, obliq: ',porb_true,' OBLIQUITY NOT YET HANDLED')
         
+        #def get_initial_values():
+
         def find_ehat_prime():
-            delta_p = 0.01*porb_found   #TODO: proper logger statements
-            alpha = 0.5
-            tri_max = 0.25
-            tri_min = 1e-8
-            max_dist = 0.5
-            min_dist = 0.001
-            second_point = []
-            third_point = []
-            acceptable_points = []
-            print('There are ',len(laststeps),' point(s) in laststeps.')
-            # For all points before the most recent point
-            for i in range(len(laststeps)):
-                # Get the distance between the most recent point and the current point in ei,pf space
-                distance = numpy.sqrt((alpha*(ecc_i-laststeps[i][0]))**2 + (porb_found-laststeps[i][2])**2)
-                print('Distance between ',laststeps[i],' and ',[ecc_i,ecc_found,porb_found,porb_i],' is ',distance)
-                # If the point is neither too close to nor too far from the most recent point
-                if max_dist > distance > min_dist:
-                    # Keep it
-                    acceptable_points.append(laststeps[i])
-            print('Removed ',len(laststeps)-len(acceptable_points),' point(s).')
-            # If no points remain after filtering
-            if len(acceptable_points) == 0:
-                # Find two points in ei,pf space, and solve to find the initial period which
-                # results in the new final period, so that we can use the new final eccentricity
-                # We want larger period and smaller eccentricity vs. the most recent point
-                print('No acceptable points remain after filtering.')
+            def generate_points():
                 point_a_period = porb_found + delta_p
                 print('point_a_period is ',point_a_period)
                 print('Solving for initial period that results in the new final period, so that we can find the new final eccentricity.')
@@ -467,12 +444,8 @@ def find_evolution(system,
                 else:
                     third_point = solve_for_point(point_b_ecc,porb_found,obliq_i)
                 print('third_point is ',third_point)
-            # Otherwise, points did remain, so let's work with that
-            else:
-                # For all acceptable points before the most recent point i
-                print('Acceptable points remain after filtering.')
-                acceptable_points.reverse()
-                print('Acceptable points are ',acceptable_points)
+                return second_point,third_point
+            def search_for_points():
                 breakloop = False
                 i = 0
                 while not breakloop and i < len(acceptable_points):
@@ -494,6 +467,95 @@ def find_evolution(system,
                             breakloop = True
                             break
                     i += 1
+                return second_point,third_point
+            def find_perpendicular_point():
+                ei_two = second_point[0]
+                pf_two = second_point[2]
+                distance = numpy.sqrt((alpha*(ecc_i-ei_two))**2 + (porb_found-pf_two)**2)
+                print('distance is ',distance)
+                del_e = alpha*(ei_two-ecc_i)
+                del_p = pf_two-porb_found
+                print('Delta e is ',del_e)
+                print('Delta p is ',del_p)
+                # Always choose the new target coordinates with largest p_f
+                rot_sign = -1 if del_e > 0 else 1
+                ei_three = ecc_i + rot_sign * del_p / alpha
+                pf_three = porb_found - rot_sign * del_e
+                if ei_three < 0:
+                    ei_three = 0
+                    print('ei_three is negative. Setting to 0. Final eccentricity must also be zero.')
+                    third_point = [0,0,porb_found,scipy.nan]
+                else:
+                    if ei_three > 0.8:
+                        print('ei_three is ',ei_three,' which is too large. Setting to 0.8.')
+                        ei_three = 0.8
+                    print('ei_three is ',ei_three,' and pf_three is ',pf_three)
+                    print('New distance is ',numpy.sqrt((alpha*(ei_three-ecc_i))**2 + (pf_three-porb_found)**2))
+                    # Solve for initial period that results in the new final period, so that we can
+                    # find the new final eccentricity
+                    print('Solving for initial period that results in the new final period, so that we can find the new final eccentricity.')
+                    third_point = solve_for_point(ei_three,pf_three,obliq_i)
+                print('third_point is ',third_point)
+                return third_point
+            def calculate_ehat_prime():
+                A = [
+                        [ecc_i,porb_found,1],
+                        [second_point[0],second_point[2],1],
+                        [third_point[0],third_point[2],1]
+                    ]
+                B = [ecc_found,second_point[1],third_point[1]]
+                print('A is ',A)
+                print('B is ',B)
+                tri_area = triangle_area([row[0] for row in A],[row[1] for row in A])
+                print('Triangle area is ',tri_area)
+                #if not (tri_max > numpy.abs(tri_area) > tri_min):
+                #    print('Unable to find two points that avoid a degenerate solution.')             TODO
+                #    raise ValueError("Unable to find two points that avoid a degenerate solution.",0)TODO
+
+                # Perform least squares fit to find ehat_prime
+                print('Performing least squares fit to find ehat_prime...')
+                A = numpy.matrix(A)
+                B = numpy.matrix(B)
+                fit = scipy.linalg.lstsq(A,B.T)[0]
+                ehat_prime = [fit[0],ecc_i]
+                print('A is ',A)
+                print('B is ',B)
+                print('ehat_prime is ',ehat_prime)
+                return ehat_prime
+            delta_p = 0.01*porb_found   #TODO: proper logger statements
+            alpha = 0.5
+            tri_max = 0.25
+            tri_min = 1e-8
+            max_dist = 0.1
+            min_dist = 0.001
+            second_point = []
+            third_point = []
+            acceptable_points = []
+            print('There are ',len(laststeps),' point(s) in laststeps.')
+            # For all points before the most recent point
+            for i in range(len(laststeps)):
+                # Get the distance between the most recent point and the current point in ei,pf space
+                distance = numpy.sqrt((alpha*(ecc_i-laststeps[i][0]))**2 + (porb_found-laststeps[i][2])**2)
+                print('Distance between ',laststeps[i],' and ',[ecc_i,ecc_found,porb_found,porb_i],' is ',distance)
+                # If the point is neither too close to nor too far from the most recent point
+                if max_dist > distance > min_dist:
+                    # Keep it
+                    acceptable_points.append(laststeps[i])
+            print('Removed ',len(laststeps)-len(acceptable_points),' point(s).')
+            # If no points remain after filtering
+            if len(acceptable_points) == 0:
+                # Find two points in ei,pf space, and solve to find the initial period which
+                # results in the new final period, so that we can use the new final eccentricity
+                # We want larger period and smaller eccentricity vs. the most recent point
+                print('No acceptable points remain after filtering.')
+                second_point,third_point = generate_points()
+            # Otherwise, points did remain, so let's work with that
+            else:
+                # For all acceptable points before the most recent point i
+                print('Acceptable points remain after filtering.')
+                acceptable_points.reverse()
+                print('Acceptable points are ',acceptable_points)
+                second_point,third_point = search_for_points()
                 # If we don't have two identified points
                 print('second_point is ',second_point)
                 print('third_point is ',third_point)
@@ -502,62 +564,13 @@ def find_evolution(system,
                     # Grab most recent acceptable point
                     second_point = acceptable_points[0]
                     print('second_point is ',second_point)
-                    # Find another point perpendicular to the line between the most recent acceptable point and the most recent point
-                    # in ei,pf space
-                    ei_two = second_point[0]
-                    pf_two = second_point[2]
-                    distance = numpy.sqrt((alpha*(ecc_i-ei_two))**2 + (porb_found-pf_two)**2)
-                    print('distance is ',distance)
-                    del_e = alpha*(ei_two-ecc_i)
-                    del_p = pf_two-porb_found
-                    print('Delta e is ',del_e)
-                    print('Delta p is ',del_p)
-                    # Always choose the new target coordinates with largest p_f
-                    rot_sign = -1 if del_e > 0 else 1
-                    ei_three = ecc_i + rot_sign * del_p / alpha
-                    pf_three = porb_found - rot_sign * del_e
-                    if ei_three < 0:
-                        ei_three = 0
-                        print('ei_three is negative. Setting to 0. Final eccentricity must also be zero.')
-                        third_point = [0,0,porb_found,scipy.nan]
-                    else:
-                        if ei_three > 0.8:
-                            print('ei_three is ',ei_three,' which is too large. Setting to 0.8.')
-                            ei_three = 0.8
-                        print('ei_three is ',ei_three,' and pf_three is ',pf_three)
-                        print('New distance is ',numpy.sqrt((alpha*(ei_three-ecc_i))**2 + (pf_three-porb_found)**2))
-                        # Solve for initial period that results in the new final period, so that we can
-                        # find the new final eccentricity
-                        print('Solving for initial period that results in the new final period, so that we can find the new final eccentricity.')
-                        third_point = solve_for_point(ei_three,pf_three,obliq_i)
-                    print('third_point is ',third_point)
+                    # Find another point perpendicular to the line between the most recent acceptable point and
+                    # the most recent point in ei,pf space
+                    third_point = find_perpendicular_point()
             # Final check to make sure the triangle area is acceptable
             print('second_point is ',second_point)
             print('third_point is ',third_point)
-            A = [
-                    [ecc_i,porb_found,1],
-                    [second_point[0],second_point[2],1],
-                    [third_point[0],third_point[2],1]
-                ]
-            B = [ecc_found,second_point[1],third_point[1]]
-            print('A is ',A)
-            print('B is ',B)
-            tri_area = triangle_area([row[0] for row in A],[row[1] for row in A])
-            print('Triangle area is ',tri_area)
-            #if not (tri_max > numpy.abs(tri_area) > tri_min):
-            #    print('Unable to find two points that avoid a degenerate solution.')             TODO
-            #    raise ValueError("Unable to find two points that avoid a degenerate solution.",0)TODO
-
-            # Perform least squares fit to find ehat_prime
-            print('Performing least squares fit to find ehat_prime...')
-            A = numpy.matrix(A)
-            B = numpy.matrix(B)
-            fit = scipy.linalg.lstsq(A,B.T)[0]
-            ehat_prime = [fit[0],ecc_i]
-            print('A is ',A)
-            print('B is ',B)
-            print('ehat_prime is ',ehat_prime)
-            return ehat_prime
+            return calculate_ehat_prime()
 
         porb_true = search_porb if search_porb is not None else system.orbital_period.to_value("day")
         ecc_true  = system.eccentricity
@@ -570,6 +583,7 @@ def find_evolution(system,
         logger.debug('porb_sign: %f',porb_sign)
         logger.debug('ecc_sign: %f',ecc_sign)
 
+        #dL,porb_i,ecc_i,obliq_i,thetype,error_out = get_initial_values()
         dL = scipy.nan
         if solve_type == "porb":
             error_out = scipy.nan
@@ -584,26 +598,12 @@ def find_evolution(system,
                 dL = variable_conditions[0]
                 ecc_i  = variable_conditions[1]
                 obliq_i = fixed_conditions
-                # Sanity check the ecc_i now because if it's weird that will affect porb_i
-                if ecc_i < 0 or ecc_i > 0.8:
-                    logger.warning('Invalid initial eccentricity')
-                    logger.warning('Initial ecc: %f',ecc_i)
-                    print('Invalid Initial Values')
-                    print('Initial ecc: ',ecc_i)
-                    if not numpy.isnan(laststeps[-1][2]):
-                        porb_found = laststeps[-1][2] # Keep the error in porb the same as the previous step
-                    else:
-                        logger.error('We should never be here.')
-                        raise ValueError("We should never be here.",0)
-                    error = [(porb_found.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]
-                    logger.debug('Returning the following values to the solver: %s',repr(error))
-                    print('Returning the following values to the solver: ',error)
-                    report_target()
-                    return error
-                else:
-                    print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)
-                    porb_i = unchange_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)[0]
-                    error_out = [(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]
+                print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)
+                # If ecc_i is weird we're going to catch it later; for now,
+                # keep the error in porb the same as the previous step
+                porb_i = laststeps[-1][2] if (ecc_i < 0 or ecc_i > 0.8) else \
+                    unchange_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)[0]
+                error_out = [(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]
             elif solve_type == "obliq": #TODO: change of variables?
                 porb_i = variable_conditions[0]
                 ecc_i  = fixed_conditions
@@ -639,9 +639,9 @@ def find_evolution(system,
             report_target()
             return wrong
         if (ecc_i < 0 or ecc_i > 0.8) or (porb_i < 0) or (obliq_i < 0 or obliq_i > 180):
-            logger.warning('Invalid Initial Values')
+            logger.warning('Invalid Initial Value(s)')
             logger.warning('Initial porb, ecc, obliq: %f, %f, %f',porb_i,ecc_i,obliq_i)
-            print('Invalid Initial Values')
+            print('Invalid Initial Value(s)')
             print('Initial porb, ecc, obliq: ',porb_i,ecc_i,obliq_i)
             invalid = (porb_i.real-porb_true)*porb_sign if solve_type == "porb" else \
                         error_out if solve_type == "ecc" else \

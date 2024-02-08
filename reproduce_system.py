@@ -995,7 +995,7 @@ def find_evolution(system,
             else:
                 # Just solving for period
                 initial_guess[1] = initial_eccentricity
-                return solve_for_point(initial_guess[1],initial_guess[0],initial_guess[2],'1d','porb')
+                return solve_for_point(initial_guess[1],None,initial_guess[2],'1d','porb')
         except Exception as err:
             logger.exception('Solver issue. Error: %s',err)
             return error,[scipy.nan,scipy.nan]

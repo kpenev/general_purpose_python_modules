@@ -452,8 +452,7 @@ def find_evolution(system,
                 else:
                     raise ValueError("Invalid solve type",0)
             return dL,porb_i,ecc_i,obliq_i,thetype,error_out
-        def sanity_checks():
-            error_out = None
+        def errfunc_sanity_check():
             if (numpy.isnan(ecc_i) or numpy.iscomplex(ecc_i) or 
                 numpy.isnan(porb_i) or numpy.iscomplex(porb_i) or 
                 numpy.isnan(obliq_i) or numpy.iscomplex(obliq_i)): # TODO: Obliquity not implemented
@@ -479,14 +478,15 @@ def find_evolution(system,
                 print('Returning the following values to the solver: ',invalid)
                 report_target()
                 return invalid
-            return error_out
+            return None
 
         def find_ehat_prime():
             def generate_points():
                 point_a_period = porb_found + delta_p
                 print('point_a_period is ',point_a_period)
                 print('Solving for initial period that results in the new final period, so that we can find the new final eccentricity.')
-                second_point = solve_for_point(ecc_i,point_a_period,obliq_i)
+                out = solve_for_point(ecc_i,point_a_period,obliq_i)[0]
+                second_point = [ecc_i,out.eccentricity[-1],point_a_period,out.orbital_period[0]]
                 print('second_point is ',second_point)
 
                 point_b_ecc = ecc_i - (alpha*delta_p)
@@ -496,7 +496,8 @@ def find_evolution(system,
                     point_b_ecc = 0
                     third_point = [0,0,porb_found,scipy.nan]
                 else:
-                    third_point = solve_for_point(point_b_ecc,porb_found,obliq_i)
+                    out = solve_for_point(point_b_ecc,porb_found,obliq_i)[0]
+                    third_point = [point_b_ecc,out.eccentricity[-1],porb_found,out.orbital_period[0]]
                 print('third_point is ',third_point)
                 return second_point,third_point
             def search_for_points():
@@ -550,7 +551,8 @@ def find_evolution(system,
                     # Solve for initial period that results in the new final period, so that we can
                     # find the new final eccentricity
                     print('Solving for initial period that results in the new final period, so that we can find the new final eccentricity.')
-                    third_point = solve_for_point(ei_three,pf_three,obliq_i)
+                    out = solve_for_point(ei_three,pf_three,obliq_i)[0]
+                    third_point = [ei_three,out.eccentricity[-1],pf_three,out.orbital_period[0]]
                 print('third_point is ',third_point)
                 return third_point
             def calculate_ehat_prime():
@@ -581,7 +583,7 @@ def find_evolution(system,
             delta_p = 0.01*porb_found   #TODO: proper logger statements
             alpha = 0.5
             tri_max = 0.25
-            tri_min = 1e-8
+            tri_min = 1e-6
             max_dist = 0.1
             min_dist = 0.001
             second_point = []
@@ -654,7 +656,7 @@ def find_evolution(system,
         
         initial_conditions = [porb_i,ecc_i,obliq_i]
 
-        error = sanity_checks()
+        error = errfunc_sanity_check()
         if error is not None:
             return error
         
@@ -714,45 +716,84 @@ def find_evolution(system,
             print('difference: ',difference)
             return difference
 
-    def solve_for_point(ecc,porb,obliq):
-        porb_min, porb_max = get_period_range(ecc,porb)
-        print('porb_min is ',porb_min)
-        print('porb_max is ',porb_max)
-        try:
-            scipy.optimize.brentq(
-                errfunc,
-                porb_min,
-                porb_max,
-                xtol=orbital_period_tolerance/100,
-                rtol=orbital_period_tolerance/100,
-                maxiter=max_iterations,
-                args=([ecc,obliq],
-                        initial_secondary_angmom,
-                        orbital_period_tolerance,
-                        eccentricity_tolerance,
-                        obliquity_tolerance,
-                        "porb",
-                        porb),
-                full_output=True
-            )
-        except ValueError as err:
+    def solve_for_point(ecc,porb,obliq,type_a='1d',type_b='ecc'):
+        def solve1d(ecc,porb,obliq):
+            porb_min, porb_max = get_period_range(ecc,porb)
+            print('porb_min is ',porb_min)
+            print('porb_max is ',porb_max)
             try:
-                length_of_args = len(err.args)
+                scipy.optimize.brentq(
+                    errfunc,
+                    porb_min,
+                    porb_max,
+                    xtol=orbital_period_tolerance/100,
+                    rtol=orbital_period_tolerance/100,
+                    maxiter=max_iterations,
+                    args=([ecc,obliq],
+                            initial_secondary_angmom,
+                            orbital_period_tolerance,
+                            eccentricity_tolerance,
+                            obliquity_tolerance,
+                            "porb",
+                            porb),
+                    full_output=True
+                )
+            except ValueError as err:
+                try:
+                    length_of_args = len(err.args)
+                except:
+                    # If that doesn't work then it's not one of our custom errors, so something weird happened
+                    logger.exception('err.args had no len()')
+                    length_of_args = 0
+                if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
+                    # Use the results for the requested point
+                    return err.args[2],err.args[3]
+                else:
+                    logger.exception('Solver crashed. Error: %s',err)
+                    raise
             except:
-                # If that doesn't work then it's not one of our custom errors, so something weird happened
-                logger.exception('err.args had no len()')
-                length_of_args = 0
-            if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
-                # Use the results for the requested point
-                return [ecc,err.args[2].eccentricity[-1],porb,err.args[2].orbital_period[0]]
-            else:
-                logger.exception('Solver crashed. Error: %s',err)
+                logger.exception('Solver crashed.')
                 raise
-        except:
-            logger.exception('Solver crashed.')
-            raise
-        logger.error("Solver failed to converge.")
-        raise ValueError("Solver failed to converge.",0)
+            logger.error("Solver failed to converge.")
+            raise ValueError("Solver failed to converge.",0)
+        def solve2d(porb,ecc,obliq,type_b):
+            try:
+                scipy.optimize.root(
+                    errfunc,
+                    [porb,ecc],
+                    method='hybr',
+                    options={'xtol':0,
+                            'ftol':0,
+                            'maxiter':max_iterations},
+                    args=(obliq,
+                            initial_secondary_angmom,
+                            orbital_period_tolerance,
+                            eccentricity_tolerance,
+                            obliquity_tolerance,
+                            type_b)
+                )
+            except ValueError as err:
+                try:
+                    length_of_args = len(err.args)
+                except:
+                    # If that doesn't work then it's not one of our custom errors, so something weird happened
+                    logger.exception('err.args had no len()')
+                    length_of_args = 0
+                if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
+                    # Use the results for the requested point
+                    return err.args[2],err.args[3]
+                else:
+                    logger.exception('Solver crashed. Error: %s',err)
+                    raise
+            except:
+                logger.exception('Solver crashed.')
+                raise
+            logger.error("Solver failed to converge.")
+            raise ValueError("Solver failed to converge.",0)
+        if type_a == '1d':
+            return solve1d(ecc,porb,obliq)
+        [in_a,in_b,in_c] = [porb,ecc,obliq] if type_b == 'ecc' else [porb,obliq,ecc]
+        return solve2d(in_a,in_b,in_c,type_b)
 
     def get_period_range(initial_eccentricity,search_porb = None):
         """
@@ -946,71 +987,17 @@ def find_evolution(system,
             if initial_eccentricity == 'solve': #TODO: make the order of p and e in (un)change_variables() match their order in other places
                 print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,system.eccentricity,system.orbital_period.to_value("day"),initial_guess[1],initial_guess[0])
                 pguess,eguess = change_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,system.eccentricity,system.orbital_period.to_value("day"),initial_guess[1],initial_guess[0])
-                initial_guess[0] = 0#pguess
+                initial_guess[0] = 0#pguess  #TODO: get rid of initial_guess, use independent variables and whatnot
                 initial_guess[1] = eguess
-                print(scipy.optimize.root(
-                    errfunc,
-                    [initial_guess[0],initial_guess[1]], #TODO: get rid of initial_guess, use independent variables and whatnot
-                    method='hybr',
-                    options={'xtol':0,
-                            'ftol':0,
-                            'maxiter':max_iterations},
-                    args=(initial_guess[2],
-                            initial_secondary_angmom,
-                            orbital_period_tolerance,
-                            eccentricity_tolerance,
-                            obliquity_tolerance,
-                            "ecc")
-                ) )
+                return solve_for_point(initial_guess[1],initial_guess[0],initial_guess[2],'2d','ecc')
             elif initial_obliquity == 'solve':
-                scipy.optimize.root(
-                    errfunc,
-                    [initial_guess[0],initial_guess[2]],
-                    method='hybr',
-                    options={'xtol':0,
-                            'ftol':0,
-                            'maxiter':max_iterations},
-                    args=(initial_guess[1],
-                            initial_secondary_angmom,
-                            orbital_period_tolerance,
-                            eccentricity_tolerance,
-                            obliquity_tolerance,
-                            "obliq")
-                )
+                return solve_for_point(initial_guess[1],initial_guess[0],initial_guess[2],'2d','obliq')
             else:
                 # Just solving for period
-                porb_min, porb_max = get_period_range(initial_eccentricity)
                 initial_guess[1] = initial_eccentricity
-
-                print( scipy.optimize.brentq(
-                    errfunc,
-                    porb_min,
-                    porb_max,
-                    xtol=orbital_period_tolerance/100,
-                    rtol=orbital_period_tolerance/100,
-                    maxiter=max_iterations,
-                    args=([initial_guess[1],initial_guess[2]],
-                            initial_secondary_angmom,
-                            orbital_period_tolerance,
-                            eccentricity_tolerance,
-                            obliquity_tolerance,
-                            "porb"),
-                    full_output=True
-                ) )
-        except ValueError as err:
-            try:
-                length_of_args = len(err.args)
-            except:
-                # If that doesn't work then it's not one of our custom errors, so something weird happened
-                logger.exception('err.args had no len()')
-                length_of_args = 0
-            if length_of_args >= 2: # Assume it's one of our errors
-                if err.args[1] == 1: # This means we actually completed successfully
-                    return err.args[2],err.args[3]
-            logger.exception('Solver crashed. Error: %s',err)
-            return error,[scipy.nan,scipy.nan]
-        except RuntimeError as err: # TODO: have a first variable appropriately formatted for all the evolution things
-            logger.exception('Solver failed to converge. Error: %s',err)
+                return solve_for_point(initial_guess[1],initial_guess[0],initial_guess[2],'1d','porb')
+        except Exception as err:
+            logger.exception('Solver issue. Error: %s',err)
             return error,[scipy.nan,scipy.nan]
     else:
         try:
@@ -1021,11 +1008,6 @@ def find_evolution(system,
         except:
             logger.exception('Something went wrong while trying to evolve the system with the given parameters.')
             raise
-
-    # If we get to this point, we tried to solve but didn't get a solution
-    # for some reason.
-    logger.error("Solver failed to converge.")
-    return error,[scipy.nan,scipy.nan]
 #pylint: enable=too-many-locals
 
 def change_variables(m1,m2,ef,pf,ei,pi): #TODO: documentation

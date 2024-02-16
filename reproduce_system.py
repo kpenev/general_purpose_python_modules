@@ -481,25 +481,19 @@ def find_evolution(system,
             return None
 
         def find_ehat_prime():
-            def generate_points():
-                point_a_period = porb_found + delta_p
-                print('point_a_period is ',point_a_period)
-                print('Solving for initial period that results in the new final period, so that we can find the new final eccentricity.')
-                out = solve_for_point(ecc_i,point_a_period,obliq_i)[0]
-                second_point = [ecc_i,out.eccentricity[-1],point_a_period,out.orbital_period[0]]
-                print('second_point is ',second_point)
-
-                point_b_ecc = ecc_i - (alpha*delta_p)
-                print('point_b_ecc is ',point_b_ecc)
-                if point_b_ecc < 0:
-                    print('point_b_ecc is negative. Setting to 0. Final eccentricity must also be zero.')
-                    point_b_ecc = 0
-                    third_point = [0,0,porb_found,scipy.nan]
+            def generate_point():
+                new_point = None
+                new_ecc_i = ecc_i - (alpha*delta_p)
+                print('new_ecc_i is ',new_ecc_i)
+                if new_ecc_i <= 0:
+                    print('new_ecc_i is negative (or zero). Setting to 0. Final eccentricity must also be zero.')
+                    new_ecc_i = 0
+                    new_point = [0,0,porb_found,scipy.nan]
                 else:
-                    out = solve_for_point(point_b_ecc,porb_found,obliq_i)[0]
-                    third_point = [point_b_ecc,out.eccentricity[-1],porb_found,out.orbital_period[0]]
-                print('third_point is ',third_point)
-                return second_point,third_point
+                    out = solve_for_point(new_ecc_i,porb_found,obliq_i)[0]
+                    new_point = [new_ecc_i,out.eccentricity[-1],porb_found,out.orbital_period[0]]
+                print('new_point is ',new_point)
+                return new_point
             def search_for_points():
                 second_point = []
                 third_point = []
@@ -525,36 +519,6 @@ def find_evolution(system,
                             break
                     i += 1
                 return second_point,third_point
-            def find_perpendicular_point():
-                ei_two = second_point[0]
-                pf_two = second_point[2]
-                distance = numpy.sqrt((alpha*(ecc_i-ei_two))**2 + (porb_found-pf_two)**2)
-                print('distance is ',distance)
-                del_e = alpha*(ei_two-ecc_i)
-                del_p = pf_two-porb_found
-                print('Delta e is ',del_e)
-                print('Delta p is ',del_p)
-                # Always choose the new target coordinates with largest p_f
-                rot_sign = -1 if del_e > 0 else 1
-                ei_three = ecc_i + rot_sign * del_p / alpha
-                pf_three = porb_found - rot_sign * del_e
-                if ei_three < 0:
-                    ei_three = 0
-                    print('ei_three is negative. Setting to 0. Final eccentricity must also be zero.')
-                    third_point = [0,0,porb_found,scipy.nan]
-                else:
-                    if ei_three > 0.8:
-                        print('ei_three is ',ei_three,' which is too large. Setting to 0.8.')
-                        ei_three = 0.8
-                    print('ei_three is ',ei_three,' and pf_three is ',pf_three)
-                    print('New distance is ',numpy.sqrt((alpha*(ei_three-ecc_i))**2 + (pf_three-porb_found)**2))
-                    # Solve for initial period that results in the new final period, so that we can
-                    # find the new final eccentricity
-                    print('Solving for initial period that results in the new final period, so that we can find the new final eccentricity.')
-                    out = solve_for_point(ei_three,pf_three,obliq_i)[0]
-                    third_point = [ei_three,out.eccentricity[-1],pf_three,out.orbital_period[0]]
-                print('third_point is ',third_point)
-                return third_point
             def calculate_ehat_prime():
                 A = [
                         [ecc_i,porb_found,1],
@@ -566,9 +530,6 @@ def find_evolution(system,
                 print('B is ',B)
                 tri_area = triangle_area([row[0] for row in A],[row[1] for row in A])
                 print('Triangle area is ',tri_area)
-                #if not (tri_max > numpy.abs(tri_area) > tri_min):
-                #    print('Unable to find two points that avoid a degenerate solution.')             TODO
-                #    raise ValueError("Unable to find two points that avoid a degenerate solution.",0)TODO
 
                 # Perform least squares fit to find ehat_prime
                 print('Performing least squares fit to find ehat_prime...')
@@ -589,6 +550,7 @@ def find_evolution(system,
             second_point = []
             third_point = []
             acceptable_points = []
+            result = None
             print('There are ',len(laststeps),' point(s) in laststeps.')
             # For all points before the most recent point
             for i in range(len(laststeps)):
@@ -600,35 +562,30 @@ def find_evolution(system,
                     # Keep it
                     acceptable_points.append(laststeps[i])
             print('Removed ',len(laststeps)-len(acceptable_points),' point(s).')
-            # If no points remain after filtering
-            if len(acceptable_points) == 0:
-                # Find two points in ei,pf space, and solve to find the initial period which
-                # results in the new final period, so that we can use the new final eccentricity
-                # We want larger period and smaller eccentricity vs. the most recent point
-                print('No acceptable points remain after filtering.')
-                second_point,third_point = generate_points()
-            # Otherwise, points did remain, so let's work with that
-            else:
+            # If we have enough acceptable points to potentially get ehat_prime without extra evolutions
+            if len(acceptable_points) > 1:
                 # For all acceptable points before the most recent point i
                 print('Acceptable points remain after filtering.')
                 acceptable_points.reverse()
                 print('Acceptable points are ',acceptable_points)
                 second_point,third_point = search_for_points()
-                # If we don't have two identified points
+                # If we have two identified points
                 print('second_point is ',second_point)
                 print('third_point is ',third_point)
-                if len(second_point) == 0 or len(third_point) == 0:
-                    print('Unable to find two points that avoid a degenerate solution.')
-                    # Grab most recent acceptable point
-                    second_point = acceptable_points[0]
-                    print('second_point is ',second_point)
-                    # Find another point perpendicular to the line between the most recent acceptable point and
-                    # the most recent point in ei,pf space
-                    third_point = find_perpendicular_point()
-            # Final check to make sure the triangle area is acceptable
-            print('second_point is ',second_point)
-            print('third_point is ',third_point)
-            return calculate_ehat_prime()
+                if not (len(second_point) == 0 or len(third_point) == 0):
+                    print('Found two points that avoid a degenerate solution.')
+                    # Get ehat_prime
+                    result = calculate_ehat_prime()
+            # If we weren't able to find three good points and get ehat_prime
+            if result is None:
+                # Solve for another point in line with the most recent point (i.e. with
+                # the same porb_found)
+                print('Additional evolution required to find ehat_prime.')
+                second_point = generate_point()
+                # Get ehat_prime directly from the two points
+                slope = (ecc_found-second_point[1])/(ecc_i-second_point[0])
+                result = [numpy.array([slope]),ecc_i]
+            return result
 
         porb_true = search_porb if search_porb is not None else system.orbital_period.to_value("day")
         ecc_true  = system.eccentricity

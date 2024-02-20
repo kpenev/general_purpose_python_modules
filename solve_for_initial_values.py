@@ -618,13 +618,22 @@ class InitialValueFinder:
         logger = logging.getLogger(__name__)
 
         primary = self._create_primary()
+        secondary = self._create_secondary()
+        if (primary.core_inertia(self.configuration['disk_dissipation_age']) == 0
+            or
+            secondary.core_inertia(self.configuration['disk_dissipation_age']) == 0
+            ):
+            logger.warning(
+                'Primary or secondary core inertia is zero at current disk dissipation age: %s, ',
+                repr(self.configuration['disk_dissipation_age'])
+            )
+            self.configuration['disk_dissipation_age'] = 0.02
         if not primary.core_inertia(self.configuration['disk_dissipation_age']) > 0:
             logger.error(
                 'Reported primary core inertia at disk dissipation age: %s, ',
                 repr(primary.core_inertia(self.configuration['disk_dissipation_age']))
             )
             raise ValueError("Primary core inertia is zero. Primary has not formed.",0)
-        secondary = self._create_secondary()
         if not secondary.core_inertia(self.configuration['disk_dissipation_age']) > 0:
             logger.error(
                 'Reported secondary core inertia at disk dissipation age: %s, ',

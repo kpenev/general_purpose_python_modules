@@ -775,7 +775,7 @@ class InitialValueFinder:
 
             params = {
                 "type": 'blank',
-                "epochs": 30,
+                "epochs": 300,
                 "batch_size": 100,
                 "verbose": 2,
                 "retrain": False,

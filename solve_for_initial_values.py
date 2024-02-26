@@ -785,50 +785,33 @@ class InitialValueFinder:
                 "features": [True, True, True, True, True, True, True, True, True, True]
             }
 
+            def save_data(param_type,params,x_train,y_train):
+                if numpy.isnan(x_train).any() or numpy.isnan(y_train):
+                    logger.warning('NaNs in the data. Not saving.')
+                    return
+                params['type'] = param_type
+                model = poet_solver.POET_IC_Solver(**params)
+                if carepackage['lock'] is not None:
+                    carepackage['lock'].acquire()
+                model.store_data(X_train=x_train, y_train=y_train)
+                length = model.data_length()
+                if length > params['threshold'] and length % 200 == 0:
+                    model.just_fit()
+                if carepackage['lock'] is not None:
+                    carepackage['lock'].release()
+
             if type == '1d':
                 X_train = numpy.array(x_vals_list)
                 logger.debug('X_train = %s, ', repr(X_train))
-                y_train = initial_orbital_period
-                params['type'] = '1d_period'
-                ai_model = poet_solver.POET_IC_Solver(**params)
-                if carepackage['lock'] is not None:
-                    carepackage['lock'].acquire()
-                ai_model.store_data(X_train=X_train, y_train=y_train)
-                length = ai_model.data_length()
-                if length > params['threshold'] and length % 200 == 0:
-                    ai_model.just_fit()
-                if carepackage['lock'] is not None:
-                    carepackage['lock'].release()
+                save_data('1d_period',params,X_train,initial_orbital_period)
             elif type == '2d':
                 x_vals_list.append(final_state.eccentricity)
                 logger.debug('NOW x_vals_list = %s, ', repr(x_vals_list))
                 params['features'].append(True)
                 X_train = numpy.array(x_vals_list)
                 logger.debug('X_train = %s, ', repr(X_train))
-
-                y_train = initial_orbital_period
-                params['type'] = '2d_period'
-                ai_model1 = poet_solver.POET_IC_Solver(**params)
-                if carepackage['lock'] is not None:
-                    carepackage['lock'].acquire()
-                ai_model1.store_data(X_train=X_train, y_train=y_train)
-                length = ai_model1.data_length()
-                if length > params['threshold'] and length % 200 == 0:
-                    ai_model1.just_fit()
-                if carepackage['lock'] is not None:
-                    carepackage['lock'].release()
-
-                y_train = initial_eccentricity
-                params['type'] = '2d_eccentricity'
-                ai_model2 = poet_solver.POET_IC_Solver(**params)
-                if carepackage['lock'] is not None:
-                    carepackage['lock'].acquire()
-                ai_model2.store_data(X_train=X_train, y_train=y_train)
-                length = ai_model2.data_length()
-                if length > params['threshold'] and length % 200 == 0:
-                    ai_model2.just_fit()
-                if carepackage['lock'] is not None:
-                    carepackage['lock'].release()
+                save_data('2d_period',params,X_train,initial_orbital_period)
+                save_data('2d_eccentricity',params,X_train,initial_eccentricity)
 
         return evolution
 

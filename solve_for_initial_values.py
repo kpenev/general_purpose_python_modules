@@ -697,12 +697,18 @@ class InitialValueFinder:
             import datetime
             from astropy.table import Table
 
+            filename = 'failed_solutions'
+
+            # Make it clear which system the file is for, if possible
+            if carepackage is not None:
+                filename = filename + f'/{carepackage["system_name"]}'
+            
             # Create the directory if it doesn't exist
-            os.makedirs('failed_solutions', exist_ok=True)
+            os.makedirs(filename, exist_ok=True)
 
             # Create the filename
             now = datetime.datetime.now()
-            filename = f'failed_solutions/solution_{now.strftime("%Y-%m-%d_%H-%M-%S")}.fits'
+            filename = filename + f'/solution_{now.strftime("%Y-%m-%d_%H-%M-%S")}.fits'
 
             # Create the table
             table = Table({
@@ -792,13 +798,17 @@ class InitialValueFinder:
                 params['type'] = param_type
                 model = poet_solver.POET_IC_Solver(**params)
                 if carepackage['lock'] is not None:
+                    logger.debug('Getting parallel processing lock.')
                     carepackage['lock'].acquire()
+                    logger.debug('Got parallel processing lock.')
                 model.store_data(X_train=x_train, y_train=y_train)
                 length = model.data_length()
                 if length > params['threshold'] and length % 200 == 0:
                     model.just_fit()
                 if carepackage['lock'] is not None:
+                    logger.debug('Releasing parallel processing lock.')
                     carepackage['lock'].release()
+                    logger.debug('Released parallel processing lock.')
 
             if type == '1d':
                 X_train = numpy.array(x_vals_list)

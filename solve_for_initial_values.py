@@ -16,6 +16,8 @@ from orbital_evolution.transformations import phase_lag
 from orbital_evolution.star_interface import EvolvingStar
 from orbital_evolution.planet_interface import LockedPlanet
 
+from POET.solver import poet_solver
+
 class InitialValueFinder:
     """TODO add proper documentation."""
 
@@ -328,7 +330,7 @@ class InitialValueFinder:
                 #modifications)
                 valid_ages = numpy.logical_and(
                     evolution.age > quantity.min_age * 2.0,
-                    evolution.age < quantity.max_age / 2.0
+                    evolution.age < quantity.max_age
                 )
                 if quantity_name in ['iconv', 'irad']:
                     values[valid_ages] = getattr(
@@ -589,7 +591,9 @@ class InitialValueFinder:
 
         return result
     
-    def try_system(self,initial_conditions,initial_secondary_angmom):
+    def try_system(self,initial_conditions,initial_secondary_angmom,
+                   type = None,
+                   carepackage = None,):
         """
         Return the evolution matching the given system configuration.
 
@@ -614,13 +618,22 @@ class InitialValueFinder:
         logger = logging.getLogger(__name__)
 
         primary = self._create_primary()
+        secondary = self._create_secondary()
+        if (primary.core_inertia(self.configuration['disk_dissipation_age']) == 0
+            or
+            secondary.core_inertia(self.configuration['disk_dissipation_age']) == 0
+            ):
+            logger.warning(
+                'Primary or secondary core inertia is zero at current disk dissipation age: %s, ',
+                repr(self.configuration['disk_dissipation_age'])
+            )
+            self.configuration['disk_dissipation_age'] = 0.02
         if not primary.core_inertia(self.configuration['disk_dissipation_age']) > 0:
             logger.error(
                 'Reported primary core inertia at disk dissipation age: %s, ',
                 repr(primary.core_inertia(self.configuration['disk_dissipation_age']))
             )
             raise ValueError("Primary core inertia is zero. Primary has not formed.",0)
-        secondary = self._create_secondary()
         if not secondary.core_inertia(self.configuration['disk_dissipation_age']) > 0:
             logger.error(
                 'Reported secondary core inertia at disk dissipation age: %s, ',
@@ -668,66 +681,146 @@ class InitialValueFinder:
         evolution = self._format_evolution(binary,
                                            self.interpolator,
                                            self.secondary_star)
-
-        logger.debug('Final period: %s, ',
-                                            repr(evolution.orbital_period[-1]))
-        assert(final_state.age==self.target_state.age)
-
+        
+        # Clean up
         primary.delete()
         secondary.delete()
         binary.delete()
 
+        logger.debug('Final period: %s, ',
+                                            repr(evolution.orbital_period[-1]))
+        try:
+            assert(final_state.age==self.target_state.age)
+        except AssertionError:
+            # Save the parameters and evolution to an astropy fits file. Parameters in header data.
+            import os
+            import datetime
+            from astropy.table import Table
+
+            filename = 'failed_solutions'
+
+            # Make it clear which system the file is for, if possible
+            if carepackage is not None:
+                filename = filename + f'/{carepackage["system_name"]}'
+            
+            # Create the directory if it doesn't exist
+            os.makedirs(filename, exist_ok=True)
+
+            # Create the filename
+            now = datetime.datetime.now()
+            filename = filename + f'/solution_{now.strftime("%Y-%m-%d_%H-%M-%S")}.fits'
+
+            # Create the table
+            table = Table({
+                'age': evolution.age,
+                'porb': evolution.orbital_period,
+                'eccentricity': evolution.eccentricity,
+                'primary_radius': evolution.primary_radius,
+                'primary_lum': evolution.primary_lum,
+                'primary_iconv': evolution.primary_iconv,
+                'primary_irad': evolution.primary_irad,
+                'secondary_radius': evolution.secondary_radius,
+                'secondary_lum': evolution.secondary_lum,
+                'secondary_iconv': evolution.secondary_iconv,
+                'secondary_irad': evolution.secondary_irad,
+                'primary_L_env': evolution.primary_envelope_angmom,
+                'primary_L_core': evolution.primary_core_angmom,
+                'secondary_L_env': evolution.secondary_envelope_angmom,
+                'secondary_L_core': evolution.secondary_core_angmom
+            })
+
+            # Create the header
+            for key, value in self.configuration['dissipation']['primary'].items():
+                name = key[::2][:8]
+                table.meta[name] = str(value)
+            table.meta['didiage'] = self.configuration['disk_dissipation_age']
+            table.meta['p_dlp'] = self.target_state.Pdisk
+            table.meta['p_windst'] = self.configuration['primary_wind_strength']
+            table.meta['p_windsa'] = self.configuration['primary_wind_saturation']
+            table.meta['p_cect'] = self.configuration['primary_core_envelope_coupling_timescale'].to_value(units.Gyr)
+            table.meta['ecc_i'] = initial_eccentricity
+            table.meta['s_dlp'] = self.configuration['secondary_disk_period']
+            table.meta['s_windst'] = self.configuration['secondary_wind_strength']
+            table.meta['s_windsa'] = self.configuration['secondary_wind_saturation']
+            table.meta['s_cect'] = self.configuration['secondary_core_envelope_coupling_timescale'].to_value(units.Gyr)
+            table.meta['age'] = self.target_state.age
+            table.meta['feh'] = self.system.feh
+            table.meta['porb'] = self.target_state.Porb
+            table.meta['p_mass'] = self.system.primary_mass.to_value(units.M_sun)
+            table.meta['s_mass'] = self.system.secondary_mass.to_value(units.M_sun)
+            table.meta['p_rad'] = self.system.Rprimary.to_value(units.R_sun)
+            table.meta['s_rad'] = self.system.Rsecondary.to_value(units.R_sun)
+            table.meta['p_i'] = initial_orbital_period
+            table.meta['evo_maxt'] = self.target_state.evolution_max_time_step
+            table.meta['evo_prec'] = self.target_state.evolution_precision
+            table.meta['orb_ptol'] = self.configuration['orbital_period_tolerance']
+            table.meta['pformage'] = self.target_state.planet_formation_age
+
+            # Save the file
+            table.write(filename, overwrite=True)
+
+            # Raise the error
+            raise AssertionError(f"Final age does not match target age. See {filename} for details.")
+
+        # Set up AI stuff
+        if type is not None and carepackage is not None:
+            # Save all the x parameters into a table
+            x_vals_list = [
+                carepackage['lgQ_min'],
+                carepackage['lgQ_break_period'].to_value(units.day),
+                carepackage['lgQ_powerlaw'],
+                self.target_state.age,
+                self.system.feh,
+                evolution.orbital_period[-1],
+                self.system.primary_mass.to_value(units.M_sun),
+                self.system.secondary_mass.to_value(units.M_sun),
+                self.system.Rprimary.to_value(units.R_sun),
+                self.system.Rsecondary.to_value(units.R_sun)
+            ]
+            logger.debug('x_vals_list = %s, ', repr(x_vals_list))
+
+            params = {
+                "type": 'blank',
+                "epochs": 300,
+                "batch_size": 100,
+                "verbose": 2,
+                "retrain": False,
+                "threshold": 2000,
+                "path_to_store": carepackage['path'],
+                "version": carepackage['system_name'],
+                "features": [True, True, True, True, True, True, True, True, True, True]
+            }
+
+            def save_data(param_type,params,x_train,y_train):
+                if numpy.isnan(x_train).any() or numpy.isnan(y_train):
+                    logger.warning('NaNs in the data. Not saving.')
+                    return
+                params['type'] = param_type
+                model = poet_solver.POET_IC_Solver(**params)
+                if carepackage['lock'] is not None:
+                    logger.debug('Getting parallel processing lock.')
+                    carepackage['lock'].acquire()
+                    logger.debug('Got parallel processing lock.')
+                model.store_data(X_train=x_train, y_train=y_train)
+                length = model.data_length()
+                if length > params['threshold'] and length % 200 == 0:
+                    model.just_fit()
+                if carepackage['lock'] is not None:
+                    logger.debug('Releasing parallel processing lock.')
+                    carepackage['lock'].release()
+                    logger.debug('Released parallel processing lock.')
+
+            if type == '1d':
+                X_train = numpy.array(x_vals_list)
+                logger.debug('X_train = %s, ', repr(X_train))
+                save_data('1d_period',params,X_train,initial_orbital_period)
+            elif type == '2d':
+                x_vals_list.append(final_state.eccentricity)
+                logger.debug('NOW x_vals_list = %s, ', repr(x_vals_list))
+                params['features'].append(True)
+                X_train = numpy.array(x_vals_list)
+                logger.debug('X_train = %s, ', repr(X_train))
+                save_data('2d_period',params,X_train,initial_orbital_period)
+                save_data('2d_eccentricity',params,X_train,initial_eccentricity)
+
         return evolution
-
-class SolverTestest(InitialValueFinder):
-    def try_system(self,initial_conditions,initial_secondary_angmom,max_age=None):
-        #e_f = e_i * Q(2*P_target)
-        #P_f = P_i / Q(2*P_target)
-
-        #initial_orbital_period=initial_conditions[0]
-        initial_eccentricity=initial_conditions[1]
-        #initial_obliquity=initial_conditions[2]
-        #initial_eccentricity = parameters['initial_eccentricity']
-        final_period = self.system.orbital_period
-        final_eccentricity = self.system.eccentricity
-
-        print('initial_eccentricity = %s' % (repr(initial_eccentricity)))
-        print('initial_period = %s' % (repr(final_period)))
-        print('final_eccentricity = %s' % (repr(final_eccentricity)))
-
-        if initial_eccentricity != 'solve':
-            #final_eccentricity = initial_eccentricity**2
-            change = initial_eccentricity / 2
-            print('change = %s' % (repr(change)))
-            final_eccentricity = initial_eccentricity - change if (initial_eccentricity - change) >= 0.1 else 0.1
-            print('final_eccentricity = %s' % (repr(final_eccentricity)))
-        else:
-            #initial_eccentricity = final_eccentricity**(1/2) if final_eccentricity < .64 else numpy.nan
-            change = final_eccentricity / 2
-            print('change = %s' % (repr(change)))
-            initial_eccentricity = final_eccentricity + change if (final_eccentricity + change) <= 0.8 else 0.8
-            print('initial_eccentricity = %s' % (repr(initial_eccentricity)))
-        #numpy.sqrt(initial_eccentricity) / 2 if initial_eccentricity > .25 else initial_eccentricity / 2
-        initial_period = final_period * 1.1 if final_period.to_value("day") <= 35 else numpy.nan
-        print('initial_period = %s' % (repr(initial_period)))
-
-        #print('initial_eccentricity = %s' % (repr(initial_eccentricity)))
-        #print('initial_period = %s' % (repr(final_period)))
-        #print('final_eccentricity = %s' % (repr(final_eccentricity)))
-
-        ehat_prime = (final_eccentricity - initial_eccentricity) / (final_period - initial_period)
-
-        #if envelope_eccentricity is not None:
-        #    final_eccentricity = 0.2#envelope_eccentricity * (9/10)
-
-        #result = (
-        #        numpy.array([final_period.to_value("day"),final_eccentricity]),
-        #        numpy.array([ehat_prime,initial_eccentricity])
-        #    )
-        result = SimpleNamespace(
-            orbital_period=[initial_period,final_period.to_value("day")],
-            eccentricity=[initial_eccentricity,final_eccentricity]
-        )
-
-        print(result)
-        return result

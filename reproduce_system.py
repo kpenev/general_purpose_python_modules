@@ -281,7 +281,8 @@ def check_if_secondary_is_star(system):
         0.05 * units.M_sun
     )
 
-
+def triangle_area(A, B):
+        return (1/2) * (A[0]*(B[1] - B[2] ) + A[1]*(B[2] - B[0] ) + A[2]*(B[0] - B[1]))
 
 #Unable to come up with refoctoring which does not decrease readability.
 #pylint: disable=too-many-locals
@@ -310,6 +311,7 @@ def find_evolution(system,
                    solve=True,
                    max_iterations=49,
                    secondary_is_star=None,
+                   carepackage = None,
                    **extra_evolve_args):
     """
     Find the evolution of the given system.
@@ -396,10 +398,8 @@ def find_evolution(system,
     """
 
     logger=logging.getLogger(__name__)
-    #laststep = [0.5,0.5,True]
-    laststep = [scipy.nan,scipy.nan,scipy.nan]
-    earlierstep = [scipy.nan,scipy.nan,scipy.nan]
-    past_initial = [scipy.nan,scipy.nan,scipy.nan]
+    laststeps = []
+    past_diffs = [scipy.nan,scipy.nan,scipy.nan]
 
     def errfunc(variable_conditions,
                 fixed_conditions,
@@ -407,37 +407,198 @@ def find_evolution(system,
                 orbital_period_tolerance,
                 eccentricity_tolerance,
                 obliquity_tolerance,
-                solve_type):
+                solve_type,
+                search_porb = None):
         """
         Returns differences between initial and found orbital period,
         eccentricity, and (potentially, if implemented) obliquity, given
         some specified initial conditions.
         """
+        def report_target():
+            if solve_type == "porb":
+                logger.debug('Target porb: %f',porb_true)
+                print('Target porb: ',porb_true)
+            elif solve_type == "ecc":
+                logger.debug('Target porb, ecc: %f, %f',porb_true,ecc_true)
+                print('Target porb, ecc: ',porb_true,ecc_true)
+            else: #TODO
+                logger.debug('Target porb, obliq: %f, OBLIQUITY NOT YET HANDLED',porb_true)
+                print('Target porb, obliq: ',porb_true,' OBLIQUITY NOT YET HANDLED')
+        def get_initial_values():
+            dL = scipy.nan
+            if solve_type == "porb":
+                error_out = scipy.nan
+                porb_i = variable_conditions
+                ecc_i  = fixed_conditions[0]
+                obliq_i = fixed_conditions[1]
+                thetype = '1d'
+            else:
+                error_out = [scipy.nan,scipy.nan]
+                if solve_type == "ecc":
+                    thetype = '2d'
+                    dL = variable_conditions[0]
+                    ecc_i  = variable_conditions[1]
+                    obliq_i = fixed_conditions
+                    print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)
+                    # If ecc_i is weird we're going to catch it later; for now,
+                    # keep the error in porb the same as the previous step
+                    porb_i = laststeps[-1][2] if (ecc_i < 0 or ecc_i > 0.8) else \
+                        unchange_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)[0]
+                    error_out = [(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]
+                elif solve_type == "obliq": #TODO: change of variables?
+                    porb_i = variable_conditions[0]
+                    ecc_i  = fixed_conditions
+                    obliq_i = variable_conditions[1]
+                else:
+                    raise ValueError("Invalid solve type",0)
+            return dL,porb_i,ecc_i,obliq_i,thetype,error_out
+        def errfunc_sanity_check():
+            if (numpy.isnan(ecc_i) or numpy.iscomplex(ecc_i) or 
+                numpy.isnan(porb_i) or numpy.iscomplex(porb_i) or 
+                numpy.isnan(obliq_i) or numpy.iscomplex(obliq_i)): # TODO: Obliquity not implemented
+                logger.warning('ecc_i, porb_i, or obliq_i is nan or imaginary: %f,%f,%f',
+                            ecc_i,porb_i,obliq_i)
+                porb_wrong = porb_sign * numpy.inf
+                ecc_wrong = ecc_sign * numpy.inf
+                obliq_wrong = numpy.inf
+                wrong = porb_wrong if solve_type == "porb" else [porb_wrong,ecc_wrong] if solve_type == "ecc" else [porb_wrong,obliq_i-3.0]
+                logger.debug('Returning the following value(s) to the solver: %s',repr(wrong))
+                print('Returning the following values to the solver: ',wrong)
+                report_target()
+                return wrong
+            if (ecc_i < 0 or ecc_i > 0.8) or (porb_i < 0) or (obliq_i < 0 or obliq_i > 180):
+                logger.warning('Invalid Initial Value(s)')
+                logger.warning('Initial porb, ecc, obliq: %f, %f, %f',porb_i,ecc_i,obliq_i)
+                print('Invalid Initial Value(s)')
+                print('Initial porb, ecc, obliq: ',porb_i,ecc_i,obliq_i)
+                invalid = (porb_i.real-porb_true)*porb_sign if solve_type == "porb" else \
+                            error_out if solve_type == "ecc" else \
+                            [porb_i.real-porb_true,obliq_i-3.0]
+                logger.debug('Returning the following value(s) to the solver: %s',repr(invalid))
+                print('Returning the following values to the solver: ',invalid)
+                report_target()
+                return invalid
+            return None
 
-        porb_true = system.orbital_period.to_value("day")
+        def find_ehat_prime():
+            def generate_point():
+                new_point = None
+                new_ecc_i = ecc_i - (alpha*delta_p)
+                print('new_ecc_i is ',new_ecc_i)
+                if new_ecc_i <= 0:
+                    print('new_ecc_i is negative (or zero). Setting to 0. Final eccentricity must also be zero.')
+                    new_ecc_i = 0
+                    new_point = [0,0,porb_found,scipy.nan]
+                else:
+                    out = solve_for_point(new_ecc_i,porb_found,obliq_i)[0]
+                    new_point = [new_ecc_i,out.eccentricity[-1],porb_found,out.orbital_period[0]]
+                print('new_point is ',new_point)
+                return new_point
+            def search_for_points():
+                second_point = []
+                third_point = []
+                breakloop = False
+                i = 0
+                while not breakloop and i < len(acceptable_points):
+                    # For all acceptable points after point i (j)
+                    for j in range(i+1,len(acceptable_points)):
+                        # If the resulting triangle area (in ei vs pf) is acceptable
+                        print('Checking triangle area for ',acceptable_points[i],' and ',acceptable_points[j])
+                        tri_area = triangle_area([ecc_i,acceptable_points[i][0],acceptable_points[j][0]],[porb_found,acceptable_points[i][2],acceptable_points[j][2]])
+                        print('Triangle area is ',tri_area)
+                        if (tri_max > numpy.abs(tri_area) > tri_min
+                        ):
+                            # Use the results for the two other points
+                            print('Triangle area is acceptable.')
+                            second_point = acceptable_points[i]
+                            print('second_point is ',second_point)
+                            third_point = acceptable_points[j]
+                            print('third_point is ',third_point)
+                            # Break out of the loop
+                            breakloop = True
+                            break
+                    i += 1
+                return second_point,third_point
+            def calculate_ehat_prime():
+                A = [
+                        [ecc_i,porb_found,1],
+                        [second_point[0],second_point[2],1],
+                        [third_point[0],third_point[2],1]
+                    ]
+                B = [ecc_found,second_point[1],third_point[1]]
+                print('A is ',A)
+                print('B is ',B)
+                tri_area = triangle_area([row[0] for row in A],[row[1] for row in A])
+                print('Triangle area is ',tri_area)
+
+                # Perform least squares fit to find ehat_prime
+                print('Performing least squares fit to find ehat_prime...')
+                A = numpy.matrix(A)
+                B = numpy.matrix(B)
+                fit = scipy.linalg.lstsq(A,B.T)[0]
+                ehat_prime = [fit[0],ecc_i]
+                print('A is ',A)
+                print('B is ',B)
+                print('ehat_prime is ',ehat_prime)
+                return ehat_prime
+            delta_p = 0.01*porb_found   #TODO: proper logger statements
+            alpha = 0.5
+            tri_max = 0.25
+            tri_min = 1e-6
+            max_dist = 0.1
+            min_dist = 0.001
+            second_point = []
+            third_point = []
+            acceptable_points = []
+            result = None
+            print('There are ',len(laststeps),' point(s) in laststeps.')
+            # For all points before the most recent point
+            for i in range(len(laststeps)):
+                # Get the distance between the most recent point and the current point in ei,pf space
+                distance = numpy.sqrt((alpha*(ecc_i-laststeps[i][0]))**2 + (porb_found-laststeps[i][2])**2)
+                print('Distance between ',laststeps[i],' and ',[ecc_i,ecc_found,porb_found,porb_i],' is ',distance)
+                # If the point is neither too close to nor too far from the most recent point
+                if max_dist > distance > min_dist:
+                    # Keep it
+                    acceptable_points.append(laststeps[i])
+            print('Removed ',len(laststeps)-len(acceptable_points),' point(s).')
+            # If we have enough acceptable points to potentially get ehat_prime without extra evolutions
+            if len(acceptable_points) > 1:
+                # For all acceptable points before the most recent point i
+                print('Acceptable points remain after filtering.')
+                acceptable_points.reverse()
+                print('Acceptable points are ',acceptable_points)
+                second_point,third_point = search_for_points()
+                # If we have two identified points
+                print('second_point is ',second_point)
+                print('third_point is ',third_point)
+                if not (len(second_point) == 0 or len(third_point) == 0):
+                    print('Found two points that avoid a degenerate solution.')
+                    # Get ehat_prime
+                    result = calculate_ehat_prime()
+            # If we weren't able to find three good points and get ehat_prime
+            if result is None:
+                # Solve for another point in line with the most recent point (i.e. with
+                # the same porb_found)
+                print('Additional evolution required to find ehat_prime.')
+                second_point = generate_point()
+                # Get ehat_prime directly from the two points
+                slope = (ecc_found-second_point[1])/(ecc_i-second_point[0])
+                result = [numpy.array([slope]),ecc_i]
+            return result
+
+        porb_true = search_porb if search_porb is not None else system.orbital_period.to_value("day")
         ecc_true  = system.eccentricity
         #obliq_true = system.obliquity
 
-        dL = numpy.nan
-        if solve_type == "porb":
-            error_out = scipy.nan
-            porb_i = variable_conditions
-            ecc_i  = fixed_conditions[0]
-            obliq_i = fixed_conditions[1]
-        else:
-            error_out = [scipy.nan,scipy.nan]
-            if solve_type == "ecc":
-                dL = variable_conditions[0]
-                ecc_i  = variable_conditions[1]
-                obliq_i = fixed_conditions
-                print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)
-                porb_i = unchange_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)[0]
-            elif solve_type == "obliq": #TODO: change of variables?
-                porb_i = variable_conditions[0]
-                ecc_i  = fixed_conditions
-                obliq_i = variable_conditions[1]
-            else:
-                raise ValueError("Invalid solve type",0)
+        thetype = None
+
+        porb_sign = past_diffs[0] if not numpy.isnan(past_diffs[0]) else 1.0
+        ecc_sign = past_diffs[1] if not numpy.isnan(past_diffs[1]) else 1.0
+        logger.debug('porb_sign: %f',porb_sign)
+        logger.debug('ecc_sign: %f',ecc_sign)
+
+        dL,porb_i,ecc_i,obliq_i,thetype,error_out = get_initial_values()
             
         logger.debug('Here are the input values the solver is trying.')
         logger.debug('porb_i: %f',porb_i)
@@ -452,107 +613,32 @@ def find_evolution(system,
         
         initial_conditions = [porb_i,ecc_i,obliq_i]
 
-        # Sanity check
-        error_flag = False
-        if numpy.isnan(ecc_i) or numpy.iscomplex(ecc_i):
-            logger.warning('ecc_i is nan or imaginary: %f',ecc_i)
-            error_flag = True
-            # if not numpy.isnan(past_initial[1]):
-            #     ecc_i = past_initial[1]
-            # else:
-            #     logger.error('We should never be here.')
-            #     ecc_i = 0.8
-        if numpy.isnan(porb_i) or numpy.iscomplex(porb_i):
-            logger.warning('porb_i is nan or imaginary: %f',porb_i)
-            error_flag = True
-            # if not numpy.isnan(past_initial[0]):
-            #     porb_i = past_initial[0]
-            # else:
-            #     porb_i = 150.0
-        if numpy.isnan(obliq_i) or numpy.iscomplex(obliq_i):
-            logger.warning('obliq_i is nan or imaginary: %f',obliq_i)
-            error_flag = True
-            # TODO: Obliquity not implemented
-        if error_flag:
-            porb_wrong = numpy.inf
-            ecc_wrong = numpy.inf
-            obliq_wrong = numpy.inf
-            if solve_type == "porb":
-
-                logger.debug('Returning the following value to the solver: %f',porb_wrong)
-                print('Returning the following value to the solver: ',porb_wrong)
-                logger.debug('Target porb: %f',porb_true)
-                print('Target porb: ',porb_true)
-                return porb_wrong
-            elif solve_type == "ecc":
-                logger.debug('Returning the following values to the solver: %s',repr([porb_wrong,ecc_wrong]))
-                print('Returning the following values to the solver: ',[porb_wrong,ecc_wrong])
-                logger.debug('Target porb, ecc: %f, %f',porb_true,ecc_true)
-                print('Target porb, ecc: ',porb_true,ecc_true)
-                #logger.debug('Potential alternate return to solver: ',[p_last,esign])
-                return [porb_wrong,ecc_wrong]
-            else:
-                logger.debug('Returning the following values to the solver: %s',repr([porb_wrong,obliq_i-3.0]))
-                print('Returning the following values to the solver: ',[porb_wrong,obliq_i-3.0])
-                logger.debug('Target porb, obliq: %f, OBLIQUITY NOT YET HANDLED',porb_true)
-                print('Target porb, obliq: ',porb_true,' OBLIQUITY NOT YET HANDLED')
-                return [porb_wrong,obliq_i-3.0] #TODO
-
-        #if not numpy.isnan(laststep[0]):
-        #    ecc_last=laststep[0]-ecc_true
-        #else:
-        #    ecc_last=1
-        #esign=ecc_last/abs(ecc_last)
-        #if not numpy.isnan(laststep[2]):
-        #    p_last = laststep[2]-porb_true
-        #else:
-        #    p_last=porb_true
-        if (ecc_i < 0 or ecc_i > 0.8) or (porb_i < 0) or (obliq_i < 0 or obliq_i > 180):
-            logger.warning('Invalid Initial Values')
-            logger.warning('Initial porb, ecc, obliq: %f, %f, %f',porb_i,ecc_i,obliq_i)
-            print('Invalid Initial Values')
-            print('Initial porb, ecc, obliq: ',porb_i,ecc_i,obliq_i)
-            if solve_type == "porb":
-                logger.debug('Returning the following value to the solver: %f',porb_i.real-porb_true)
-                print('Returning the following value to the solver: ',porb_i.real-porb_true)
-                logger.debug('Target porb: %f',porb_true)
-                print('Target porb: ',porb_true)
-                return porb_i.real-porb_true
-            elif solve_type == "ecc":
-                logger.debug('Returning the following values to the solver: %s',repr([porb_i.real-porb_true,ecc_i-ecc_true]))
-                print('Returning the following values to the solver: ',[porb_i.real-porb_true,ecc_i-ecc_true])
-                logger.debug('Target porb, ecc: %f, %f',porb_true,ecc_true)
-                print('Target porb, ecc: ',porb_true,ecc_true)
-                #logger.debug('Potential alternate return to solver: ',[p_last,esign])
-                return [porb_i.real-porb_true,ecc_i-ecc_true]
-            else:
-                logger.debug('Returning the following values to the solver: %s',repr([porb_i.real-porb_true,obliq_i-3.0]))
-                print('Returning the following values to the solver: ',[porb_i.real-porb_true,obliq_i-3.0])
-                logger.debug('Target porb, obliq: %f, OBLIQUITY NOT YET HANDLED',porb_true)
-                print('Target porb, obliq: ',porb_true,' OBLIQUITY NOT YET HANDLED')
-                return [porb_i.real-porb_true,obliq_i-3.0] #TODO
-
-        past_initial[0] = porb_i
-        past_initial[1] = ecc_i
-        past_initial[2] = obliq_i
+        error = errfunc_sanity_check()
+        if error is not None:
+            return error
         
         try:
-            evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom)
+            evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom,
+                                                thetype,
+                                                carepackage)
         except AssertionError as err:
             logger.exception('AssertionError: %s',err)
+            print('AssertionError: ',err)
+            logger.debug('Returning the following values to the solver: %s',repr(error_out))
+            print('Returning the following values to the solver: ',error_out)
             return error_out
         except:
-            logger.exception('Something unknown went wrong while trying to evolve the system with the given parameters.')
+            logger.exception('Something unknown went wrong while trying to evolve the system with the given parameters: %s',repr(initial_conditions))
             raise
-        porb_found = evolution.orbital_period[-1]
-        ecc_found = evolution.eccentricity[-1]
+        porb_found, ecc_found = evolution.orbital_period[-1], evolution.eccentricity[-1]
         obliq_found = scipy.nan
 
         logger.debug('Found porb, ecc, obliq: %f, %f, %f',porb_found,ecc_found,obliq_found)
         logger.debug('Target porb, ecc, obliq: %f, %f, OBLIQUITY NOT YET HANDLED',porb_true,ecc_true)
 
-        porb_diff = porb_found-porb_true
-        ecc_diff = ecc_found-ecc_true
+        porb_diff, ecc_diff = porb_found-porb_true, ecc_found-ecc_true
+        past_diffs[0] = porb_diff / numpy.abs(porb_diff)
+        past_diffs[1] = ecc_diff / numpy.abs(ecc_diff)
 
         logger.debug('porb tolerance vs porb diff: %f, %f',orbital_period_tolerance,porb_diff)
         logger.debug('ecc tolerance vs ecc diff: %f, %f',eccentricity_tolerance,ecc_diff)
@@ -575,32 +661,98 @@ def find_evolution(system,
             check = [orbital_period_tolerance,obliquity_tolerance]
         
         if numpy.all(numpy.abs(difference) <= check):
-            if (not numpy.isnan(earlierstep[0])) and solve_type == "ecc":
-                A = numpy.matrix([
-                                    [earlierstep[0],earlierstep[2],1],
-                                    [laststep[0],laststep[2],1],
-                                    [ecc_i,porb_found,1]
-                                ])
-                B = numpy.matrix([earlierstep[1],laststep[1],ecc_found])
-                fit,residual,rnk,s = scipy.linalg.lstsq(A,B.T)
-                ehat_prime = [fit[0],ecc_i]
-                print('A is ',A)
-                print('B is ',B)
+            if len(laststeps) >= 3 and solve_type == "ecc":
+                print('laststeps is ',laststeps)
+                ehat_prime = find_ehat_prime()
             else:
                 ehat_prime = [scipy.nan,scipy.nan]
             print('ehat_prime is ',ehat_prime)
             raise ValueError("solver and errfunc() have found initial values with acceptable results",1,evolution,ehat_prime)
         else:
-            earlierstep[0] = laststep[0]
-            earlierstep[1] = laststep[1]
-            earlierstep[2] = laststep[2]
-            laststep[0] = ecc_i
-            laststep[1] = ecc_found
-            laststep[2] = porb_found
-            print(difference)
+            laststeps.append([ecc_i,ecc_found,porb_found,porb_i])
+            print('difference: ',difference)
             return difference
-        #TODO make sure last three points aren't all on a line?
-    def get_period_range(initial_eccentricity):
+
+    def solve_for_point(ecc,porb,obliq,type_a='1d',type_b='ecc'):
+        def solve1d(ecc,porb,obliq):
+            porb_min, porb_max = get_period_range(ecc,porb)
+            print('porb_min is ',porb_min)
+            print('porb_max is ',porb_max)
+            try:
+                scipy.optimize.brentq(
+                    errfunc,
+                    porb_min,
+                    porb_max,
+                    xtol=orbital_period_tolerance/100,
+                    rtol=orbital_period_tolerance/100,
+                    maxiter=max_iterations,
+                    args=([ecc,obliq],
+                            initial_secondary_angmom,
+                            orbital_period_tolerance,
+                            eccentricity_tolerance,
+                            obliquity_tolerance,
+                            "porb",
+                            porb),
+                    full_output=True
+                )
+            except ValueError as err:
+                try:
+                    length_of_args = len(err.args)
+                except:
+                    # If that doesn't work then it's not one of our custom errors, so something weird happened
+                    logger.exception('err.args had no len()')
+                    length_of_args = 0
+                if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
+                    # Use the results for the requested point
+                    return err.args[2],err.args[3]
+                else:
+                    logger.exception('Solver crashed. Error: %s',err)
+                    raise
+            except:
+                logger.exception('Solver crashed.')
+                raise
+            logger.error("Solver failed to converge.")
+            raise ValueError("Solver failed to converge.",0)
+        def solve2d(porb,ecc,obliq,type_b):
+            try:
+                scipy.optimize.root(
+                    errfunc,
+                    [porb,ecc],
+                    method='hybr',
+                    options={'xtol':0,
+                            'ftol':0,
+                            'maxiter':max_iterations},
+                    args=(obliq,
+                            initial_secondary_angmom,
+                            orbital_period_tolerance,
+                            eccentricity_tolerance,
+                            obliquity_tolerance,
+                            type_b)
+                )
+            except ValueError as err:
+                try:
+                    length_of_args = len(err.args)
+                except:
+                    # If that doesn't work then it's not one of our custom errors, so something weird happened
+                    logger.exception('err.args had no len()')
+                    length_of_args = 0
+                if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
+                    # Use the results for the requested point
+                    return err.args[2],err.args[3]
+                else:
+                    logger.exception('Solver crashed. Error: %s',err)
+                    raise
+            except:
+                logger.exception('Solver crashed.')
+                raise
+            logger.error("Solver failed to converge.")
+            raise ValueError("Solver failed to converge.",0)
+        if type_a == '1d':
+            return solve1d(ecc,porb,obliq)
+        [in_a,in_b,in_c] = [porb,ecc,obliq] if type_b == 'ecc' else [porb,obliq,ecc]
+        return solve2d(in_a,in_b,in_c,type_b)
+
+    def get_period_range(initial_eccentricity,search_porb = None):
         """
         Returns a range of initial orbital periods within which the
         difference between the found and correct final periods crosses
@@ -608,12 +760,15 @@ def find_evolution(system,
         """
 
         period_search_factor = 1.1
-        max_porb_initial = 100.0
+        max_porb_initial = 200.0
         porb_min, porb_max = scipy.nan, scipy.nan
-        porb_initial = system.orbital_period.to_value("day") * 3 #TODO: test this
-        #TODO better initial obliq
+        porb_correct = search_porb if search_porb is not None else system.orbital_period.to_value("day")
+        porb_initial = porb_correct * 3
+        obliq_i = 0.0
         try:
-            porb = value_finder.try_system([porb_initial,initial_eccentricity,3],initial_secondary_angmom).orbital_period[-1]
+            porb = value_finder.try_system([porb_initial,initial_eccentricity,obliq_i],initial_secondary_angmom,
+                                           '1d',
+                                           carepackage).orbital_period[-1]
         except AssertionError as err:
             logger.exception('AssertionError: %s',err)
             porb=0.0
@@ -622,7 +777,7 @@ def find_evolution(system,
             raise
         if numpy.isnan(porb):
             porb=0.0
-        porb_error = porb - system.orbital_period.to_value("day")
+        porb_error = porb - porb_correct
         guess_porb_error = porb_error
         step = (period_search_factor if guess_porb_error < 0
                 else 1.0 / period_search_factor)
@@ -663,8 +818,10 @@ def find_evolution(system,
             )
             #TODO better initial obliq
             try:
-                porb = value_finder.try_system([porb_initial,initial_eccentricity,3],
-                                                        initial_secondary_angmom).orbital_period[-1]
+                porb = value_finder.try_system([porb_initial,initial_eccentricity,obliq_i],
+                                                        initial_secondary_angmom,
+                                                        '1d',
+                                                        carepackage).orbital_period[-1]
             except AssertionError as err:
                 logger.exception('AssertionError: %s',err)
                 porb=0.0
@@ -674,7 +831,7 @@ def find_evolution(system,
             logger.debug('After evolution: porb = %s', repr(porb))
             if numpy.isnan(porb):
                 porb=0.0
-            porb_error = porb - system.orbital_period.to_value("day")
+            porb_error = porb - porb_correct
 
         if porb==0.0:
             logger.exception("porb is 0")
@@ -693,6 +850,10 @@ def find_evolution(system,
             repr(porb_min),
             repr(porb_max)
         )
+        
+        if numpy.isnan(porb_min) or numpy.isnan(porb_max):
+            logger.exception("porb_min or porb_max is nan")
+            raise ValueError("porb_min or porb_max is nan",0)
 
         return porb_min, porb_max
 
@@ -767,13 +928,13 @@ def find_evolution(system,
         **extra_evolve_args
     )
 
-    initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,3]  #TODO make obliq reflect system
+    initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,0.0]  #TODO make obliq reflect system
     logger.debug('Old version of initial guess: %s',repr(initial_guess))
     #initial_guess = [10,0.3,3]
     newe = 0.5#system.eccentricity*2
     #if newe>0.8:
     #    newe=0.8
-    initial_guess = [system.orbital_period.to_value("day")*2,newe,3]
+    initial_guess = [system.orbital_period.to_value("day")*2,newe,0.0]
     logger.debug('New version of initial guess: %s',repr(initial_guess))
     initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
     #initial_eccentricity='solve'
@@ -783,70 +944,17 @@ def find_evolution(system,
             if initial_eccentricity == 'solve': #TODO: make the order of p and e in (un)change_variables() match their order in other places
                 print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,system.eccentricity,system.orbital_period.to_value("day"),initial_guess[1],initial_guess[0])
                 pguess,eguess = change_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,system.eccentricity,system.orbital_period.to_value("day"),initial_guess[1],initial_guess[0])
-                initial_guess[0] = 0#pguess
+                initial_guess[0] = 0#pguess  #TODO: get rid of initial_guess, use independent variables and whatnot
                 initial_guess[1] = eguess
-                print(scipy.optimize.root(
-                    errfunc,
-                    [initial_guess[0],initial_guess[1]], #TODO: get rid of initial_guess, use independent variables and whatnot
-                    method='hybr',
-                    options={'xtol':0,
-                            'ftol':0,
-                            'maxiter':max_iterations},
-                    args=(initial_guess[2],
-                            initial_secondary_angmom,
-                            orbital_period_tolerance,
-                            eccentricity_tolerance,
-                            obliquity_tolerance,
-                            "ecc")
-                ) )
+                return solve_for_point(initial_guess[1],initial_guess[0],initial_guess[2],'2d','ecc')
             elif initial_obliquity == 'solve':
-                scipy.optimize.root(
-                    errfunc,
-                    [initial_guess[0],initial_guess[2]],
-                    method='hybr',
-                    options={'xtol':0,
-                            'ftol':0,
-                            'maxiter':max_iterations},
-                    args=(initial_guess[1],
-                            initial_secondary_angmom,
-                            orbital_period_tolerance,
-                            eccentricity_tolerance,
-                            obliquity_tolerance,
-                            "obliq")
-                )
+                return solve_for_point(initial_guess[1],initial_guess[0],initial_guess[2],'2d','obliq')
             else:
                 # Just solving for period
-                porb_min, porb_max = get_period_range(initial_eccentricity)
                 initial_guess[1] = initial_eccentricity
-
-                scipy.optimize.brentq(
-                    errfunc,
-                    porb_min,
-                    porb_max,
-                    xtol=orbital_period_tolerance/10,
-                    rtol=orbital_period_tolerance/10,
-                    maxiter=max_iterations,
-                    args=([initial_guess[1],initial_guess[2]],
-                            initial_secondary_angmom,
-                            orbital_period_tolerance,
-                            eccentricity_tolerance,
-                            obliquity_tolerance,
-                            "porb")
-                )
-        except ValueError as err:
-            try:
-                length_of_args = len(err.args)
-            except:
-                # If that doesn't work then it's not one of our custom errors, so something weird happened
-                logger.exception('err.args had no len()')
-                length_of_args = 0
-            if length_of_args >= 2: # Assume it's one of our errors
-                if err.args[1] == 1: # This means we actually completed successfully
-                    return err.args[2],err.args[3]
-            logger.exception('Solver crashed. Error: %s',err)
-            return error,[scipy.nan,scipy.nan]
-        except RuntimeError as err: # TODO: have a first variable appropriately formatted for all the evolution things
-            logger.exception('Solver failed to converge. Error: %s',err)
+                return solve_for_point(initial_guess[1],None,initial_guess[2],'1d','porb')
+        except Exception as err:
+            logger.exception('Solver issue. Error: %s',err)
             return error,[scipy.nan,scipy.nan]
     else:
         try:
@@ -857,11 +965,6 @@ def find_evolution(system,
         except:
             logger.exception('Something went wrong while trying to evolve the system with the given parameters.')
             raise
-
-    # If we get to this point, we tried to solve but didn't get a solution
-    # for some reason.
-    logger.error("Solver failed to converge.")
-    return error,[scipy.nan,scipy.nan]
 #pylint: enable=too-many-locals
 
 def change_variables(m1,m2,ef,pf,ei,pi): #TODO: documentation

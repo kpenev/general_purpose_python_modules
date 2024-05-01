@@ -4,6 +4,8 @@ import os
 import os.path
 from datetime import datetime
 import logging
+import re
+from glob import glob
 
 import git
 
@@ -23,6 +25,44 @@ def get_code_version_str():
     if repository.is_dirty():
         return head_sha + ':dirty'
     return head_sha
+
+
+def get_log_outerr_filenames(existing_pid=False, **config):
+    """Return the filenames where `setup_process()` redirects log and output."""
+
+    if 'task' not in config:
+        config['task'] = 'calculate'
+    config.update(
+        now=('*' if existing_pid
+             else datetime.now().strftime(config['fname_datetime_format'])),
+        pid=(existing_pid or os.getpid())
+    )
+
+    if existing_pid == '*':
+        pid_rex = re.compile(r'\{pid[^}]*\}')
+        def prepare(format_str):
+            return '*'.join(pid_rex.split(format_str))
+    else:
+        def prepare(format_str):
+            return format_str
+
+    if config['std_out_err_fname'] is None:
+        std_out_err_fname = None
+    else:
+        std_out_err_fname = prepare(config['std_out_err_fname']).format_map(
+            config
+        )
+
+    result = (
+        prepare(config['logging_fname']).format_map(config),
+        std_out_err_fname
+    )
+
+    if existing_pid:
+        return tuple(sorted(glob(glob_str)) for glob_str in result)
+
+    return result
+
 
 def setup_process(**config):
     """
@@ -62,16 +102,9 @@ def setup_process(**config):
         if dirname and not os.path.exists(dirname):
             os.makedirs(dirname)
 
-    if 'task' not in config:
-        config['task'] = 'calculate'
-    config.update(
-        now=datetime.now().strftime(config['fname_datetime_format']),
-        pid=os.getpid()
-    )
 
-    if config.get('std_out_err_fname') is not None:
-        print('Config: ' + repr(config))
-        std_out_err_fname = config['std_out_err_fname'].format_map(config)
+    logging_fname, std_out_err_fname = get_log_outerr_filenames(**config)
+    if std_out_err_fname is not None:
         ensure_directory(std_out_err_fname)
 
         io_destination = os.open(
@@ -82,20 +115,19 @@ def setup_process(**config):
         os.dup2(io_destination, 1)
         os.dup2(io_destination, 2)
 
-    logging_fname = config['logging_fname'].format_map(config)
     ensure_directory(logging_fname)
 
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
         handler.close()
-    logging_config = dict(
-        filename=logging_fname,
-        level=getattr(
+    logging_config = {
+        'filename': logging_fname,
+        'level': getattr(
             logging,
             config.get('logging_verbosity', config.get('verbose')).upper()
         ),
-        format=config['logging_message_format']
-    )
+        'format': config['logging_message_format']
+    }
     if config.get('logging_datetime_format') is not None:
         logging_config['datefmt'] = config['logging_datetime_format']
 

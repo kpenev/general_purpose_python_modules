@@ -13,13 +13,13 @@ def get_code_version_str():
     """Return a string identifying the version of the code being used."""
 
     repository = git.Repo(
-        os.path.dirname(
-            os.path.dirname(
+#        os.path.dirname(
+#            os.path.dirname(
                 os.path.dirname(
                     os.path.abspath(__file__)
                 )
-            )
-        )
+#            )
+#        )
     )
     head_sha = repository.commit().hexsha
     if repository.is_dirty():

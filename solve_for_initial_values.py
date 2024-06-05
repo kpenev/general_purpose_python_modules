@@ -111,7 +111,9 @@ class InitialValueFinder:
                                          interpolation_age)
         logger.debug('By the way, the interpolation age is %s', repr(interpolation_age))
         if dissipation is not None:
+            logger.debug('Dissipation is not none.')
             star.set_dissipation(zone_index=0, **dissipation)
+            logger.debug('Successfully set star dissipation.')
         return star
 
     def _create_primary(self):
@@ -520,10 +522,11 @@ class InitialValueFinder:
         """Return the angular momentum of the secondary when binary forms."""
 
         logger = logging.getLogger(__name__)
-
+        logger.debug('Creating secondary.')
         secondary = self._create_secondary(False)
 
         if not self.secondary_star:
+            logger.debug('Not self.secondary_star.')
             return (
                 (
                     2.0 * numpy.pi / self.configuration['secondary_disk_period']
@@ -532,9 +535,10 @@ class InitialValueFinder:
                 )
                 ,
             )
-
+        logger.debug('Creating planet for mock companion.')
         mock_companion = self._create_planet(1.0 * units.M_jup,
                                              1.0 * units.R_jup)
+        logger.debug('Creating binary.')
         binary = Binary(
             primary=secondary,
             secondary=mock_companion,
@@ -561,7 +565,7 @@ class InitialValueFinder:
                          evolution_mode='LOCKED_SURFACE_SPIN')
 
         secondary.detect_stellar_wind_saturation()
-
+        logger.debug('Evolving binary.')
         binary.evolve(
             final_age=self.configuration['disk_dissipation_age'],
             **self._get_combined_evolve_args(evolve_kwargs)
@@ -698,12 +702,12 @@ class InitialValueFinder:
             import datetime
             from astropy.table import Table
 
-            filename = 'failed_solutions'
+            filename = '/work/08402/vortebo/ls6/failed_solutions'
 
             # Make it clear which system the file is for, if possible
             if carepackage is not None:
                 filename = filename + f'/{carepackage["system_name"]}'
-            
+
             # Create the directory if it doesn't exist
             os.makedirs(filename, exist_ok=True)
 
@@ -768,7 +772,7 @@ class InitialValueFinder:
             raise AssertionError(f"Final age does not match target age. See {filename} for details.")
 
         # Set up AI stuff
-        if type is not None and carepackage is not None:
+        if False: #type is not None and carepackage is not None:
             # Save all the x parameters into a table
             x_vals_list = [
                 carepackage['lgQ_min'],

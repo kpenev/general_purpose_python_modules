@@ -678,9 +678,10 @@ class InitialValueFinder:
         logger.debug('Initial period: %s, ',
                                             repr(initial_orbital_period))
 
-        evolution = self._format_evolution(binary,
-                                           self.interpolator,
-                                           self.secondary_star)
+        final_orbital_period = binary.orbital_period(final_state.semimajor)
+        result = SimpleNamespace()
+        setattr(result, 'orbital_period', numpy.array([final_orbital_period]))
+        setattr(result, 'eccentricity', numpy.array([final_state.eccentricity]))
         
         # Clean up
         primary.delete()
@@ -688,7 +689,7 @@ class InitialValueFinder:
         binary.delete()
 
         logger.debug('Final period: %s, ',
-                                            repr(evolution.orbital_period[-1]))
+                                            repr(result.orbital_period[-1]))
         try:
             assert(final_state.age==self.target_state.age)
         except AssertionError:
@@ -709,6 +710,10 @@ class InitialValueFinder:
             # Create the filename
             now = datetime.datetime.now()
             filename = filename + f'/solution_{now.strftime("%Y-%m-%d_%H-%M-%S")}.fits'
+
+            evolution = self._format_evolution(binary,
+                                           self.interpolator,
+                                           self.secondary_star)
 
             # Create the table
             table = Table({
@@ -771,7 +776,7 @@ class InitialValueFinder:
                 carepackage['lgQ_powerlaw'],
                 self.target_state.age,
                 self.system.feh,
-                evolution.orbital_period[-1],
+                result.orbital_period[-1],
                 self.system.primary_mass.to_value(units.M_sun),
                 self.system.secondary_mass.to_value(units.M_sun),
                 self.system.Rprimary.to_value(units.R_sun),
@@ -823,4 +828,4 @@ class InitialValueFinder:
                 save_data('2d_period',params,X_train,initial_orbital_period)
                 save_data('2d_eccentricity',params,X_train,initial_eccentricity)
 
-        return evolution
+        return result

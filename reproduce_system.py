@@ -544,7 +544,7 @@ def find_evolution(system,
             delta_p = 0.01*porb_found   #TODO: proper logger statements
             alpha = 0.5
             tri_max = 0.25
-            tri_min = 1e-6
+            tri_min = 1e-4
             max_dist = 0.1
             min_dist = 0.001
             second_point = []

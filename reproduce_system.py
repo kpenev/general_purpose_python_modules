@@ -35,6 +35,8 @@ from multiprocessing import Pool
 from functools import partial
 from multiprocessing_util import setup_process
 
+from POET.solver import poet_solver
+
 def add_dissipation_cmdline(parser, lgq_suffixes=('primary', 'secondary')):
     """
     Add argumets to a command line parser to define tidal dissipation.
@@ -675,44 +677,75 @@ def find_evolution(system,
 
     def solve_for_point(ecc,porb,obliq,type_a='1d',type_b='ecc'):
         def solve1d(ecc,porb,obliq):
-            porb_min, porb_max = get_period_range(ecc,porb)
+            def run_brentq(porb_min,porb_max,porb):
+                try:
+                    scipy.optimize.brentq(
+                        errfunc,
+                        porb_min,
+                        porb_max,
+                        xtol=orbital_period_tolerance/100,
+                        rtol=orbital_period_tolerance/100,
+                        maxiter=max_iterations,
+                        args=([ecc,obliq],
+                                initial_secondary_angmom,
+                                orbital_period_tolerance,
+                                eccentricity_tolerance,
+                                obliquity_tolerance,
+                                "porb",
+                                porb),
+                        full_output=True
+                    )
+                except ValueError as err:
+                    try:
+                        length_of_args = len(err.args)
+                    except:
+                        # If that doesn't work then it's not one of our custom errors, so something weird happened
+                        logger.exception('err.args had no len()')
+                        length_of_args = 0
+                    if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
+                        # Use the results for the requested point
+                        return err.args[2],err.args[3]
+                    else:
+                        logger.exception('Solver crashed. Error: %s',err)
+                        raise
+                except:
+                    logger.exception('Solver crashed.')
+                    raise
+                logger.error("Solver failed to converge.")
+                raise ValueError("Solver failed to converge.",0)
+            porb_min, porb_max = None, None
+            if isinstance(porb, list):
+                # logger.debug('Verifying that ML guesses provide a range of porb values that bracket the correct porb.')
+                # porb_correct=system.orbital_period.to_value("day")
+                # result1 = value_finder.try_system([porb[0],initial_eccentricity,0.0],
+                #                                         initial_secondary_angmom,
+                #                                         '1d',
+                #                                         carepackage).orbital_period[-1]
+                # #blah()
+                # result1 = 0 if (numpy.isnan(result1) or result1 is None) else result1
+                # #result2 = blah(porb[1])
+                # result2 = value_finder.try_system([porb[1],initial_eccentricity,0.0],
+                #                                         initial_secondary_angmom,
+                #                                         '1d',
+                #                                         carepackage).orbital_period[-1]
+                # result2 = 0 if (numpy.isnan(result2) or result2 is None) else result2
+                # if (result1-porb_correct) * (result2-porb_correct) < 0:
+                #     logger.debug('ML guesses will work.')
+                #     porb_min, porb_max = porb[0],porb[1]
+                logger.debug('Attempting to solve with ML-provided bounds.')
+                try:
+                    return run_brentq(porb[0],porb[1],None)
+                except:
+                    logger.exception('Failed to solve with ML-provided bounds.')
+                porb = None
+            if porb_min is None:
+                logger.debug('We must manually find a range of porb values that bracket the correct porb.')
+                porb_min, porb_max = get_period_range(ecc,porb)
+            logger.debug('porb_min is %s',repr(porb_min))
+            logger.debug('porb_max is %s',repr(porb_max))
             print('porb_min is ',porb_min)
             print('porb_max is ',porb_max)
-            try:
-                scipy.optimize.brentq(
-                    errfunc,
-                    porb_min,
-                    porb_max,
-                    xtol=orbital_period_tolerance/100,
-                    rtol=orbital_period_tolerance/100,
-                    maxiter=max_iterations,
-                    args=([ecc,obliq],
-                            initial_secondary_angmom,
-                            orbital_period_tolerance,
-                            eccentricity_tolerance,
-                            obliquity_tolerance,
-                            "porb",
-                            porb),
-                    full_output=True
-                )
-            except ValueError as err:
-                try:
-                    length_of_args = len(err.args)
-                except:
-                    # If that doesn't work then it's not one of our custom errors, so something weird happened
-                    logger.exception('err.args had no len()')
-                    length_of_args = 0
-                if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
-                    # Use the results for the requested point
-                    return err.args[2],err.args[3]
-                else:
-                    logger.exception('Solver crashed. Error: %s',err)
-                    raise
-            except:
-                logger.exception('Solver crashed.')
-                raise
-            logger.error("Solver failed to converge.")
-            raise ValueError("Solver failed to converge.",0)
+            return run_brentq(porb_min,porb_max,porb)
         def solve2d(porb,ecc,obliq,type_b):
             try:
                 scipy.optimize.root(
@@ -857,6 +890,116 @@ def find_evolution(system,
 
         return porb_min, porb_max
 
+    def get_initial_guess(dimtype):
+        def load_splitpoint(modeltype):
+            path = carepackage['path']
+            name = carepackage['system_name']
+            splitpoint = numpy.load(f'/{path}/poet_output/{modeltype}_{name}/datasets/splitpoint.npy')
+            return splitpoint[0]
+        def ai_guess(pore):
+            if carepackage is not None:
+                logger.debug('Loading splitpoint and model for AI guess.')
+                params = {
+                    "type": 'blank',
+                    "epochs": 350,
+                    "batch_size": 50,
+                    "verbose": 2,
+                    "retrain": False,
+                    "threshold": 2000,
+                    "path_to_store": carepackage['path'],
+                    "version": carepackage['system_name'],
+                    "features": [True, True, True, True, True, True, True, True, True, True]
+                }
+                x_vals = [
+                    carepackage['lgQ_min'],
+                    carepackage['lgQ_break_period'].to_value(units.day),
+                    carepackage['lgQ_powerlaw'],
+                    system.age.to(units.Gyr).value,
+                    system.feh,
+                    system.orbital_period.to_value("day"),
+                    system.primary_mass.to_value(units.M_sun),
+                    system.secondary_mass.to_value(units.M_sun),
+                    system.Rprimary.to_value(units.R_sun),
+                    system.Rsecondary.to_value(units.R_sun)
+                ]
+                splittingon = x_vals[5]
+                if dimtype == '1d':
+                    params['type'] = '1d_period'
+                elif dimtype == '2d':
+                    params['features'].append(True)
+                    x_vals.append(system.eccentricity)
+                    if pore == 'p':
+                        params['type'] = '2d_period'
+                    else:
+                        params['type'] = '2d_eccentricity'
+                        splittingon = x_vals[10]
+
+                #that's.. probably not how i want to do this? maybe?:
+                path = carepackage['path']
+                name = carepackage['system_name']
+                usingtype = params['type']
+                directory = f'/{path}/poet_output/{usingtype}_{name}'
+                file_list = list()
+                if os.path.exists(directory):
+                    for file in os.listdir(directory):
+                        file_list.append(file)
+                bin1model = "model1.h5" in file_list
+                bin2model = "model2.h5" in file_list
+                if bin1model and bin2model:
+                    logger.debug('Both models are present.')
+                    splitpoint = load_splitpoint(params['type'])
+                    params['bin'] = '1' if splittingon < splitpoint else '2'
+                    logger.debug('Splitpoint: %f',splitpoint)
+                    logger.debug('splitting on: %f',splittingon)
+                    logger.debug('AI model parameters: %s',repr(params))
+                    model = poet_solver.POET_IC_Solver(**params)
+                    x_vals = numpy.array(x_vals)
+                    lowerbound,upperbound = model.fit_evaluate(X_test=x_vals)
+                    lowerbound,upperbound=lowerbound[0],upperbound[0]
+                    lower_okay = lowerbound is not None and not numpy.isnan(lowerbound)
+                    upper_okay = upperbound is not None and not numpy.isnan(upperbound)
+                    logger.debug('AI guess: %f < x < %f',lowerbound,upperbound)
+                    if lower_okay and upper_okay:
+                        logger.debug('AI guess successful.')
+                        lowerbound = lowerbound if lowerbound >= 0 else 0
+                        if pore == 'p':
+                            if lowerbound <= system.orbital_period.to_value("day"):
+                                if upperbound <= system.orbital_period.to_value("day"):
+                                    logger.debug('AI guess rejected.')
+                                    return None
+                                lowerbound = system.orbital_period.to_value("day")
+                        logger.debug('AI guess modulated.')
+                        logger.debug('AI guess: %f < x < %f',lowerbound,upperbound)
+                        if dimtype == '1d':
+                            return [lowerbound,upperbound]#[8.230337225949961,10]#[10,20]
+                        else:
+                            if pore == 'e':
+                                upperbound = upperbound if upperbound <= 0.8 else 0.8
+                            return 0.5*(lowerbound+upperbound)
+                    return None
+
+        try:
+            per = ai_guess('p')
+            ecc = ai_guess('e') if dimtype == '2d' else 0.0
+            if per is not None and ecc is not None:
+                logger.debug('per, ecc: %s, %s',repr(per),repr(ecc))
+                return [per,ecc,0.0]
+            else:
+                raise ValueError("AI guess failed",0)
+        except Exception as e:
+            logger.exception('Error during loading of splitpoint and/or model: %s',repr(e))
+            logger.exception('Using fallback guess.')
+        
+        initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,0.0]  #TODO make obliq reflect system
+        logger.debug('Old version of initial guess: %s',repr(initial_guess))
+        #initial_guess = [10,0.3,3]
+        newe = 0.5#system.eccentricity*2
+        #if newe>0.8:
+        #    newe=0.8
+        initial_guess = [system.orbital_period.to_value("day")*2,newe,0.0]
+        logger.debug('New version of initial guess: %s',repr(initial_guess))
+        return initial_guess
+
     # Sanity check eccentricity and obliquity
     # This is redundant as it's also checked by POET
     if isinstance(initial_eccentricity, str):
@@ -880,6 +1023,9 @@ def find_evolution(system,
     elif initial_obliquity < 0 or initial_obliquity > numpy.pi:
         logger.error('Invalid initial obliquity %f',initial_obliquity)
         raise ValueError("Invalid initial obliquity")
+
+    # Sanity check target age/mass combination and also target age < 10/11 Gyr
+    # Also maybe this isn't the right place for this idk
     
     #False positive
     #pylint: disable=no-member
@@ -928,31 +1074,26 @@ def find_evolution(system,
         **extra_evolve_args
     )
 
-    initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,0.0]  #TODO make obliq reflect system
-    logger.debug('Old version of initial guess: %s',repr(initial_guess))
-    #initial_guess = [10,0.3,3]
-    newe = 0.5#system.eccentricity*2
-    #if newe>0.8:
-    #    newe=0.8
-    initial_guess = [system.orbital_period.to_value("day")*2,newe,0.0]
-    logger.debug('New version of initial guess: %s',repr(initial_guess))
     initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
     #initial_eccentricity='solve'
     error=SimpleNamespace(eccentricity=[scipy.nan],orbital_period=[scipy.nan])
     if solve:
         try:
             if initial_eccentricity == 'solve': #TODO: make the order of p and e in (un)change_variables() match their order in other places
+                initial_guess = get_initial_guess('2d')
                 print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,system.eccentricity,system.orbital_period.to_value("day"),initial_guess[1],initial_guess[0])
                 pguess,eguess = change_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,system.eccentricity,system.orbital_period.to_value("day"),initial_guess[1],initial_guess[0])
-                initial_guess[0] = 0#pguess  #TODO: get rid of initial_guess, use independent variables and whatnot
+                initial_guess[0] = pguess#0  #TODO: get rid of initial_guess, use independent variables and whatnot
                 initial_guess[1] = eguess
                 return solve_for_point(initial_guess[1],initial_guess[0],initial_guess[2],'2d','ecc')
             elif initial_obliquity == 'solve':
+                initial_guess = get_initial_guess('2d')
                 return solve_for_point(initial_guess[1],initial_guess[0],initial_guess[2],'2d','obliq')
             else:
                 # Just solving for period
+                initial_guess = get_initial_guess('1d')
                 initial_guess[1] = initial_eccentricity
-                return solve_for_point(initial_guess[1],None,initial_guess[2],'1d','porb')
+                return solve_for_point(initial_guess[1],initial_guess[0],initial_guess[2],'1d','porb')
         except Exception as err:
             logger.exception('Solver issue. Error: %s',err)
             return error,[scipy.nan,scipy.nan]

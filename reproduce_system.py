@@ -638,19 +638,19 @@ def find_evolution(system,
         logger.debug('Found porb, ecc, obliq: %f, %f, %f',porb_found,ecc_found,obliq_found)
         logger.debug('Target porb, ecc, obliq: %f, %f, OBLIQUITY NOT YET HANDLED',porb_true,ecc_true)
 
-        porb_diff, ecc_diff = porb_found-porb_true, ecc_found-ecc_true
-        past_diffs[0] = porb_diff / numpy.abs(porb_diff)
-        past_diffs[1] = ecc_diff / numpy.abs(ecc_diff)
-
-        logger.debug('porb tolerance vs porb diff: %f, %f',orbital_period_tolerance,porb_diff)
-        logger.debug('ecc tolerance vs ecc diff: %f, %f',eccentricity_tolerance,ecc_diff)
-
         if numpy.isnan(porb_found):
             logger.warning('porb_found is nan')
             porb_found = 0.0
         if numpy.isnan(ecc_found):
             logger.warning('ecc_found is nan')
             ecc_found = 0.0
+
+        porb_diff, ecc_diff = porb_found-porb_true, ecc_found-ecc_true
+        past_diffs[0] = porb_diff / numpy.abs(porb_diff)
+        past_diffs[1] = ecc_diff / numpy.abs(ecc_diff)
+
+        logger.debug('porb tolerance vs porb diff: %f, %f',orbital_period_tolerance,porb_diff)
+        logger.debug('ecc tolerance vs ecc diff: %f, %f',eccentricity_tolerance,ecc_diff)
 
         if solve_type == "porb":
             difference = porb_diff

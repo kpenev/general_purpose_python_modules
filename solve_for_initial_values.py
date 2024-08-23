@@ -790,8 +790,8 @@ class InitialValueFinder:
 
             params = {
                 "type": 'blank',
-                "epochs": 300,
-                "batch_size": 100,
+                "epochs": 350,
+                "batch_size": 50,
                 "verbose": 2,
                 "retrain": False,
                 "threshold": 2000,
@@ -810,14 +810,19 @@ class InitialValueFinder:
                     logger.debug('Getting parallel processing lock.')
                     carepackage['lock'].acquire()
                     logger.debug('Got parallel processing lock.')
-                model.store_data(X_train=x_train, y_train=y_train)
-                length = model.data_length()
-                if length > params['threshold'] and length % 200 == 0:
-                    model.just_fit()
-                if carepackage['lock'] is not None:
-                    logger.debug('Releasing parallel processing lock.')
-                    carepackage['lock'].release()
-                    logger.debug('Released parallel processing lock.')
+                try:
+                    model.store_data(X_train=x_train, y_train=y_train)
+                    length = model.data_length()
+                    if length > params['threshold'] and length % 200 == 0:
+                        model.just_fit()
+                except Exception as e:
+                    logger.error('Error in storing data: %s', repr(e))
+                    raise e
+                finally:
+                    if carepackage['lock'] is not None:
+                        logger.debug('Releasing parallel processing lock.')
+                        carepackage['lock'].release()
+                        logger.debug('Released parallel processing lock.')
 
             if type == '1d':
                 X_train = numpy.array(x_vals_list)

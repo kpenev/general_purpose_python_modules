@@ -686,11 +686,6 @@ class InitialValueFinder:
         result = SimpleNamespace()
         setattr(result, 'orbital_period', numpy.array([final_orbital_period]))
         setattr(result, 'eccentricity', numpy.array([final_state.eccentricity]))
-        
-        # Clean up
-        primary.delete()
-        secondary.delete()
-        binary.delete()
 
         logger.debug('Final period: %s, ',
                                             repr(result.orbital_period[-1]))
@@ -770,6 +765,11 @@ class InitialValueFinder:
 
             # Raise the error
             raise AssertionError(f"Final age does not match target age. See {filename} for details.")
+        finally:
+            # Clean up
+            primary.delete()
+            secondary.delete()
+            binary.delete()
 
         # Set up AI stuff
         if False: #type is not None and carepackage is not None:

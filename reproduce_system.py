@@ -734,7 +734,9 @@ def find_evolution(system,
                 #     porb_min, porb_max = porb[0],porb[1]
                 logger.debug('Attempting to solve with ML-provided bounds.')
                 try:
-                    return run_brentq(porb[0],porb[1],None)
+                    ml_result = run_brentq(porb[0],porb[1],None)
+                    logger.debug('Successfully found a solution with ML-provided bounds!')
+                    return ml_result
                 except:
                     logger.exception('Failed to solve with ML-provided bounds.')
                 porb = None

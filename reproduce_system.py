@@ -734,7 +734,9 @@ def find_evolution(system,
                 #     porb_min, porb_max = porb[0],porb[1]
                 logger.debug('Attempting to solve with ML-provided bounds.')
                 try:
-                    return run_brentq(porb[0],porb[1],None)
+                    ml_result = run_brentq(porb[0],porb[1],None)
+                    logger.debug('Successfully found a solution with ML-provided bounds!')
+                    return ml_result
                 except:
                     logger.exception('Failed to solve with ML-provided bounds.')
                 porb = None
@@ -794,6 +796,11 @@ def find_evolution(system,
 
         period_search_factor = 1.1
         max_porb_initial = 200.0
+        try:
+            min_porb_initial = 2.44*system.Rsecondary.to_value(units.R_sun)*(system.primary_mass.to(units.M_sun) / system.secondary_mass.to(units.M_sun))**(1.0 / 3.0)
+        except:
+            logger.exception('Failed to calculate min_porb_initial.')
+            min_porb_initial = 0.0
         porb_min, porb_max = scipy.nan, scipy.nan
         porb_correct = search_porb if search_porb is not None else system.orbital_period.to_value("day")
         porb_initial = porb_correct * 3
@@ -825,7 +832,11 @@ def find_evolution(system,
         while (
                 porb_error * guess_porb_error > 0
                 and
-                porb_initial < max_porb_initial
+                (
+                    porb_initial < max_porb_initial
+                    and
+                    porb_initial > min_porb_initial
+                )
         ):
             if porb_error < 0:
                 porb_min = porb_initial

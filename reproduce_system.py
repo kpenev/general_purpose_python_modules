@@ -976,29 +976,31 @@ def find_evolution(system,
                         if pore == 'p':
                             if lowerbound <= system.orbital_period.to_value("day"):
                                 if upperbound <= system.orbital_period.to_value("day"):
-                                    logger.debug('AI guess rejected.')
-                                    return None
+                                    raise ValueError("Predicted initial period below observed.",0)
                                 lowerbound = system.orbital_period.to_value("day")
-                        logger.debug('AI guess modulated.')
+                                logger.debug('AI guess modulated.')
                         logger.debug('AI guess: %f < x < %f',lowerbound,upperbound)
                         if dimtype == '1d':
-                            return [lowerbound,upperbound]#[8.230337225949961,10]#[10,20]
+                            return [lowerbound,upperbound]
                         else:
                             if pore == 'e':
                                 upperbound = upperbound if upperbound <= 0.8 else 0.8
                             return 0.5*(lowerbound+upperbound)
                     return None
+                raise ValueError("One or both models not found.",0)
+            raise ValueError("No AI model information provided.",0)
 
         try:
+            logger.debug('Getting prediction for period.')
             per = ai_guess('p')
+            logger.debug('Getting prediction for eccentricity (if valid).')
             ecc = ai_guess('e') if dimtype == '2d' else 0.0
+            logger.debug('per, ecc: %s, %s',repr(per),repr(ecc))
             if per is not None and ecc is not None:
-                logger.debug('per, ecc: %s, %s',repr(per),repr(ecc))
                 return [per,ecc,0.0]
-            else:
-                raise ValueError("AI guess failed",0)
+            raise ValueError("AI guess failed",0)
         except Exception as e:
-            logger.exception('Error during loading of splitpoint and/or model: %s',repr(e))
+            logger.exception('Error during AI guess: %s',repr(e))
             logger.exception('Using fallback guess.')
         
         initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,0.0]  #TODO make obliq reflect system

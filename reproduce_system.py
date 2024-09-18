@@ -995,10 +995,9 @@ def find_evolution(system,
             per = ai_guess('p')
             logger.debug('Getting prediction for eccentricity (if valid).')
             ecc = ai_guess('e') if dimtype == '2d' else 0.0
+            logger.debug('per, ecc: %s, %s',repr(per),repr(ecc))
             if per is not None and ecc is not None:
-                logger.debug('per, ecc: %s, %s',repr(per),repr(ecc))
                 return [per,ecc,0.0]
-            logger.error('per, ecc: %s, %s',repr(per),repr(ecc))
             raise ValueError("AI guess failed",0)
         except Exception as e:
             logger.exception('Error during AI guess: %s',repr(e))

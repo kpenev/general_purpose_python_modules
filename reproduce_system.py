@@ -734,7 +734,9 @@ def find_evolution(system,
                 #     porb_min, porb_max = porb[0],porb[1]
                 logger.debug('Attempting to solve with ML-provided bounds.')
                 try:
-                    return run_brentq(porb[0],porb[1],None)
+                    ml_result = run_brentq(porb[0],porb[1],None)
+                    logger.debug('Successfully found a solution with ML-provided bounds!')
+                    return ml_result
                 except:
                     logger.exception('Failed to solve with ML-provided bounds.')
                 porb = None
@@ -794,6 +796,11 @@ def find_evolution(system,
 
         period_search_factor = 1.1
         max_porb_initial = 200.0
+        try:
+            min_porb_initial = 2.44*system.Rsecondary.to_value(units.R_sun)*(system.primary_mass.to(units.M_sun) / system.secondary_mass.to(units.M_sun))**(1.0 / 3.0)
+        except:
+            logger.exception('Failed to calculate min_porb_initial.')
+            min_porb_initial = 0.0
         porb_min, porb_max = scipy.nan, scipy.nan
         porb_correct = search_porb if search_porb is not None else system.orbital_period.to_value("day")
         porb_initial = porb_correct * 3
@@ -825,7 +832,11 @@ def find_evolution(system,
         while (
                 porb_error * guess_porb_error > 0
                 and
-                porb_initial < max_porb_initial
+                (
+                    porb_initial < max_porb_initial
+                    and
+                    porb_initial > min_porb_initial
+                )
         ):
             if porb_error < 0:
                 porb_min = porb_initial
@@ -965,29 +976,31 @@ def find_evolution(system,
                         if pore == 'p':
                             if lowerbound <= system.orbital_period.to_value("day"):
                                 if upperbound <= system.orbital_period.to_value("day"):
-                                    logger.debug('AI guess rejected.')
-                                    return None
+                                    raise ValueError("Predicted initial period below observed.",0)
                                 lowerbound = system.orbital_period.to_value("day")
-                        logger.debug('AI guess modulated.')
+                                logger.debug('AI guess modulated.')
                         logger.debug('AI guess: %f < x < %f',lowerbound,upperbound)
                         if dimtype == '1d':
-                            return [lowerbound,upperbound]#[8.230337225949961,10]#[10,20]
+                            return [lowerbound,upperbound]
                         else:
                             if pore == 'e':
                                 upperbound = upperbound if upperbound <= 0.8 else 0.8
                             return 0.5*(lowerbound+upperbound)
                     return None
+                raise ValueError("One or both models not found.",0)
+            raise ValueError("No AI model information provided.",0)
 
         try:
+            logger.debug('Getting prediction for period.')
             per = ai_guess('p')
+            logger.debug('Getting prediction for eccentricity (if valid).')
             ecc = ai_guess('e') if dimtype == '2d' else 0.0
+            logger.debug('per, ecc: %s, %s',repr(per),repr(ecc))
             if per is not None and ecc is not None:
-                logger.debug('per, ecc: %s, %s',repr(per),repr(ecc))
                 return [per,ecc,0.0]
-            else:
-                raise ValueError("AI guess failed",0)
+            raise ValueError("AI guess failed",0)
         except Exception as e:
-            logger.exception('Error during loading of splitpoint and/or model: %s',repr(e))
+            logger.exception('Error during AI guess: %s',repr(e))
             logger.exception('Using fallback guess.')
         
         initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,0.0]  #TODO make obliq reflect system

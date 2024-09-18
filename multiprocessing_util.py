@@ -100,7 +100,11 @@ def setup_process(**config):
 
         dirname = os.path.dirname(fname)
         if dirname and not os.path.exists(dirname):
-            os.makedirs(dirname)
+            try:
+                os.makedirs(dirname)
+            except FileExistsError:
+                if not os.path.isdir(dirname):
+                    raise
 
 
     logging_fname, std_out_err_fname = get_log_outerr_filenames(**config)

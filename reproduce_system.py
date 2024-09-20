@@ -713,25 +713,7 @@ def find_evolution(system,
                     raise
                 logger.error("Solver failed to converge.")
                 raise ValueError("Solver failed to converge.",0)
-            porb_min, porb_max = None, None
             if isinstance(porb, list):
-                # logger.debug('Verifying that ML guesses provide a range of porb values that bracket the correct porb.')
-                # porb_correct=system.orbital_period.to_value("day")
-                # result1 = value_finder.try_system([porb[0],initial_eccentricity,0.0],
-                #                                         initial_secondary_angmom,
-                #                                         '1d',
-                #                                         carepackage).orbital_period[-1]
-                # #blah()
-                # result1 = 0 if (numpy.isnan(result1) or result1 is None) else result1
-                # #result2 = blah(porb[1])
-                # result2 = value_finder.try_system([porb[1],initial_eccentricity,0.0],
-                #                                         initial_secondary_angmom,
-                #                                         '1d',
-                #                                         carepackage).orbital_period[-1]
-                # result2 = 0 if (numpy.isnan(result2) or result2 is None) else result2
-                # if (result1-porb_correct) * (result2-porb_correct) < 0:
-                #     logger.debug('ML guesses will work.')
-                #     porb_min, porb_max = porb[0],porb[1]
                 logger.debug('Attempting to solve with ML-provided bounds.')
                 try:
                     ml_result = run_brentq(porb[0],porb[1],None)
@@ -740,9 +722,8 @@ def find_evolution(system,
                 except:
                     logger.exception('Failed to solve with ML-provided bounds.')
                 porb = None
-            if porb_min is None:
-                logger.debug('We must manually find a range of porb values that bracket the correct porb.')
-                porb_min, porb_max = get_period_range(ecc,porb)
+            logger.debug('We must manually find a range of porb values that bracket the correct porb.')
+            porb_min, porb_max = get_period_range(ecc,porb)
             logger.debug('porb_min is %s',repr(porb_min))
             logger.debug('porb_max is %s',repr(porb_max))
             print('porb_min is ',porb_min)
@@ -1005,11 +986,9 @@ def find_evolution(system,
         
         initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,0.0]  #TODO make obliq reflect system
         logger.debug('Old version of initial guess: %s',repr(initial_guess))
-        #initial_guess = [10,0.3,3]
-        newe = 0.5#system.eccentricity*2
-        #if newe>0.8:
-        #    newe=0.8
-        initial_guess = [system.orbital_period.to_value("day")*2,newe,0.0]
+        newe = 0.5
+        period_guess = system.orbital_period.to_value("day")*2 if dimtype == '2d' else None
+        initial_guess = [period_guess,newe,0.0]
         logger.debug('New version of initial guess: %s',repr(initial_guess))
         return initial_guess
 

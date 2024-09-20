@@ -1009,7 +1009,8 @@ def find_evolution(system,
         newe = 0.5#system.eccentricity*2
         #if newe>0.8:
         #    newe=0.8
-        initial_guess = [system.orbital_period.to_value("day")*2,newe,0.0]
+        period_guess = system.orbital_period.to_value("day")*2 if dimtype == '2d' else None
+        initial_guess = [period_guess,newe,0.0]
         logger.debug('New version of initial guess: %s',repr(initial_guess))
         return initial_guess
 

@@ -231,6 +231,7 @@ class InitialValueFinder:
             disk_dissipation_age=self.configuration['disk_dissipation_age'],
             secondary_formation_age=self.target_state.planet_formation_age
         )
+        logger.debug('Binary made.')
         #pylint: enable=no-member
         binary.configure(age=primary.core_formation_age(),
                          semimajor=float('nan'),
@@ -239,6 +240,7 @@ class InitialValueFinder:
                          inclination=None,
                          periapsis=None,
                          evolution_mode='LOCKED_SURFACE_SPIN')
+        logger.debug('Binary configured.')
         if isinstance(secondary, EvolvingStar):
             initial_obliquity = numpy.array([0.0])
             initial_periapsis = numpy.array([0.0])
@@ -263,9 +265,13 @@ class InitialValueFinder:
             zero_outer_inclination=True,
             zero_outer_periapsis=True
         )
+        logger.debug('Secondary configured.')
         primary.detect_stellar_wind_saturation()
+        logger.debug('Primary detected stellar wind saturation.')
         if isinstance(secondary, EvolvingStar):
+            logger.debug('We will do that for secondary too.')
             secondary.detect_stellar_wind_saturation()
+        logger.debug('We did it.')
         return binary
     
     @staticmethod
@@ -620,6 +626,7 @@ class InitialValueFinder:
         initial_obliquity=initial_conditions[2]
 
         logger = logging.getLogger(__name__)
+        logger.debug('Angmom: %s, ', repr(initial_secondary_angmom))
 
         primary = self._create_primary()
         secondary = self._create_secondary()
@@ -656,6 +663,7 @@ class InitialValueFinder:
             initial_obliquity=initial_obliquity,
             initial_secondary_angmom=initial_secondary_angmom
         )
+        logger.debug('System created.')
 
         #if max_age is None:
         max_age = self.target_state.age
@@ -669,10 +677,12 @@ class InitialValueFinder:
             None,
             timeout=3600
             )
+        logger.debug('Binary evolved.')
 
         final_state=binary.final_state()
         logger.debug('Final state age: %s, ',
                                           repr(final_state.age))
+        print('Final state age: ',final_state.age)
         logger.debug('Target state age: %s, ',
                                             repr(self.target_state.age))
         logger.debug('Initial eccentricity: %s, ',
@@ -772,7 +782,7 @@ class InitialValueFinder:
             binary.delete()
 
         # Set up AI stuff
-        if False: #type is not None and carepackage is not None:
+        if type is not None and carepackage is not None:
             # Save all the x parameters into a table
             x_vals_list = [
                 carepackage['lgQ_min'],

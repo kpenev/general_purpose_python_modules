@@ -704,13 +704,17 @@ def find_evolution(system,
                         length_of_args = 0
                     if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
                         # Use the results for the requested point
+                        logger.debug('TORSHA: 1d finished success')
                         return err.args[2],err.args[3]
                     else:
+                        logger.debug('TORSHA: 1d CRASHED')
                         logger.exception('Solver crashed. Error: %s',err)
                         raise
                 except:
+                    logger.debug('TORSHA: 1d CRASHED')
                     logger.exception('Solver crashed.')
                     raise
+                logger.debug('TORSHA: 1d NON-CONVERGE')
                 logger.error("Solver failed to converge.")
                 raise ValueError("Solver failed to converge.",0)
             if isinstance(porb, list):
@@ -722,8 +726,11 @@ def find_evolution(system,
                 except:
                     logger.exception('Failed to solve with ML-provided bounds.')
                 porb = None
+                logger.debug('TORSHA: 1d ML time loss')
             logger.debug('We must manually find a range of porb values that bracket the correct porb.')
+            logger.debug('TORSHA: 1d finding porb range')
             porb_min, porb_max = get_period_range(ecc,porb)
+            logger.debug('TORSHA: 1d range found')
             logger.debug('porb_min is %s',repr(porb_min))
             logger.debug('porb_max is %s',repr(porb_max))
             print('porb_min is ',porb_min)
@@ -754,13 +761,17 @@ def find_evolution(system,
                     length_of_args = 0
                 if length_of_args >= 2 and err.args[1] == 1: # Assume it's one of our errors, and that we actually completed successfully
                     # Use the results for the requested point
+                    logger.debug('TORSHA: 2d finished success')
                     return err.args[2],err.args[3]
                 else:
+                    logger.debug('TORSHA: 2d CRASHED')
                     logger.exception('Solver crashed. Error: %s',err)
                     raise
             except:
+                logger.debug('TORSHA: 2d CRASHED')
                 logger.exception('Solver crashed.')
                 raise
+            logger.debug('TORSHA: 2d NON-CONVERGE')
             logger.error("Solver failed to converge.")
             raise ValueError("Solver failed to converge.",0)
         if type_a == '1d':
@@ -971,6 +982,7 @@ def find_evolution(system,
                 raise ValueError("One or both models not found.",0)
             raise ValueError("No AI model information provided.",0)
 
+        logger.debug('TORSHA: start of solving %s',repr(dimtype))
         try:
             logger.debug('Getting prediction for period.')
             per = ai_guess('p')
@@ -978,6 +990,7 @@ def find_evolution(system,
             ecc = ai_guess('e') if dimtype == '2d' else 0.0
             logger.debug('per, ecc: %s, %s',repr(per),repr(ecc))
             if per is not None and ecc is not None:
+                logger.debug('TORSHA: Trying ML for %s',repr(dimtype))
                 return [per,ecc,0.0]
             raise ValueError("AI guess failed",0)
         except Exception as e:
@@ -990,6 +1003,7 @@ def find_evolution(system,
         period_guess = system.orbital_period.to_value("day")*2 if dimtype == '2d' else None
         initial_guess = [period_guess,newe,0.0]
         logger.debug('New version of initial guess: %s',repr(initial_guess))
+        logger.debug('TORSHA: NOT using ML for %s',repr(dimtype))
         return initial_guess
 
     # Sanity check eccentricity and obliquity

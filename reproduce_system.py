@@ -492,6 +492,7 @@ def find_evolution(system,
                     new_ecc_i = 0
                     new_point = [0,0,porb_found,scipy.nan]
                 else:
+                    logger.debug('TORSHA: ignore the next finish bcuz its from within errfun')
                     out = solve_for_point(new_ecc_i,porb_found,obliq_i)[0]
                     new_point = [new_ecc_i,out.eccentricity[-1],porb_found,out.orbital_period[0]]
                 print('new_point is ',new_point)

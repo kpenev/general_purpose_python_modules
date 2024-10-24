@@ -822,9 +822,9 @@ class InitialValueFinder:
                     logger.debug('Got parallel processing lock.')
                 try:
                     model.store_data(X_train=x_train, y_train=y_train)
-                    length = model.data_length()
-                    if length > params['threshold'] and length % 200 == 0:
-                        model.just_fit()
+                    # length = model.data_length()
+                    # if length > params['threshold'] and length % 200 == 0:
+                    #     model.just_fit()
                 except Exception as e:
                     logger.error('Error in storing data: %s', repr(e))
                     raise e

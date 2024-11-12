@@ -797,6 +797,8 @@ def find_evolution(system,
         porb_min, porb_max = scipy.nan, scipy.nan
         porb_correct = search_porb if search_porb is not None else system.orbital_period.to_value("day")
         porb_initial = porb_correct * 3
+        if porb_initial > max_porb_initial: # Don't need to check for min because it *should* automatically fail at that point
+            porb_initial = max_porb_initial
         obliq_i = 0.0
         try:
             porb = value_finder.try_system([porb_initial,initial_eccentricity,obliq_i],initial_secondary_angmom,
@@ -826,9 +828,9 @@ def find_evolution(system,
                 porb_error * guess_porb_error > 0
                 and
                 (
-                    porb_initial < max_porb_initial
+                    porb_initial <= max_porb_initial
                     and
-                    porb_initial > min_porb_initial
+                    porb_initial >= min_porb_initial
                 )
         ):
             if porb_error < 0:

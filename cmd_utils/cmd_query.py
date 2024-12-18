@@ -9,17 +9,25 @@ from astropy import units as u
 _cmd_url = "http://stev.oapd.inaf.it/cgi-bin"
 
 
+def _format_query_range(value, units=None):
+    """Return properly formatted min, max, step for given value."""
+
+    try:
+        assert len(value) == 3
+    except TypeError:
+        value = (value, value, 0.0)
+    return tuple(
+        f"{entry.to_value(units) if units else entry:.5f}" for entry in value
+    )
+
+
 def _submit_query(
     *, age=1.0, feh=0.0, visual_extinction=0.0, cmd_version=None, timeout
 ):
     """Submit the query to the CMD web interface."""
 
-    age_str = f"{age.to_value('yr'):.5f}"
-    try:
-        feh = (float(feh), float(feh), 0.0)
-    except TypeError:
-        assert len(feh) == 3
-    feh_str = tuple(f"{value:.5f}" for value in feh)
+    feh = _format_query_range(feh)
+    age = _format_query_range(age, "yr")
     cmd_url = _cmd_url + "/cmd" + (f"_{cmd_version}" if cmd_version else "")
     print(f"Submitting form at: {cmd_url}")
     query_values = {
@@ -43,17 +51,17 @@ def _submit_query(
         "extinction_curve": "cardelli",
         "imf_file": "tab_imf/imf_kroupa_orig.dat",
         "isoc_isagelog": "0",
-        "isoc_agelow": age_str,
-        "isoc_ageupp": age_str,
-        "isoc_dage": "0.0",
+        "isoc_agelow": age[0],
+        "isoc_ageupp": age[1],
+        "isoc_dage": age[2],
         "isoc_dlage": "0.0",
         "isoc_ismetlog": "1",
         "isoc_zlow": "0.0152",
         "isoc_zupp": "0.03",
         "isoc_dz": "0.0",
-        "isoc_metlow": feh_str[0],
-        "isoc_metupp": feh_str[1],
-        "isoc_dmet": feh_str[2],
+        "isoc_metlow": feh[0],
+        "isoc_metupp": feh[1],
+        "isoc_dmet": feh[2],
         "output_kind": "0",
         "output_evstage": "1",
         "lf_maginf": "-15",
@@ -152,6 +160,9 @@ def query_cmd(
 if __name__ == "__main__":
     print(
         query_cmd(
-            age=1.0 * u.Gyr, cmd_version="3.7", output_fname="downloaded.ssv"
+            age=(1.0 * u.Gyr, 2.0 * u.Gyr, 0.5 * u.Gyr),
+            feh=(-0.5, 0.5, 0.5),
+            cmd_version="3.7",
+            output_fname="downloaded.ssv",
         ).decode()
     )

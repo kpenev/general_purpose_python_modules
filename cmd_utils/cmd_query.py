@@ -2,11 +2,15 @@
 
 """Automate downloading CMD isochrone data."""
 
+import logging
+
 import requests
 from bs4 import BeautifulSoup
 from astropy import units as u
 
 _cmd_url = "http://stev.oapd.inaf.it/cgi-bin"
+
+_logger = logging.getLogger(__name__)
 
 
 def _format_query_range(value, units=None):
@@ -22,12 +26,26 @@ def _format_query_range(value, units=None):
 
 
 def _submit_query(
-    *, age=1.0, feh=0.0, visual_extinction=0.0, cmd_version=None, timeout
+    *,
+    age=(
+        6.0 * u.yr * u.dex,
+        10.0 * u.yr * u.dex,
+        0.1 * u.yr * u.dex,
+    ),
+    feh=0.0,
+    visual_extinction=0.0,
+    cmd_version=None,
+    timeout,
 ):
     """Submit the query to the CMD web interface."""
 
     feh = _format_query_range(feh)
-    age = _format_query_range(age, "yr")
+    try:
+        age = _format_query_range(age, u.yr * u.dex)
+        log_age = "1"
+    except u.errors.UnitConversionError:
+        age = _format_query_range(age, u.yr)
+        log_age = "0"
     cmd_url = _cmd_url + "/cmd" + (f"_{cmd_version}" if cmd_version else "")
     print(f"Submitting form at: {cmd_url}")
     query_values = {
@@ -50,7 +68,7 @@ def _submit_query(
         "extinction_coeff": "constant",
         "extinction_curve": "cardelli",
         "imf_file": "tab_imf/imf_kroupa_orig.dat",
-        "isoc_isagelog": "0",
+        "isoc_isagelog": log_age,
         "isoc_agelow": age[0],
         "isoc_ageupp": age[1],
         "isoc_dage": age[2],
@@ -97,7 +115,13 @@ def _submit_query(
     return response.text
 
 
-# TODO: decide retrun format: file vs interpolator
+# TODO: decide retrun format: file vs interpolator.
+
+
+# TODO: allow querrying in uniform steps of log(age) instead of age. Actually
+#       should be default
+
+
 def query_cmd(
     output_fname=None,
     timeout=600.0,
@@ -160,8 +184,8 @@ def query_cmd(
 if __name__ == "__main__":
     print(
         query_cmd(
-            age=(1.0 * u.Gyr, 2.0 * u.Gyr, 0.5 * u.Gyr),
-            feh=(-0.5, 0.5, 0.5),
+            age=(1.0 * u.Myr, 13.0 * u.Gyr, 0.1 * u.Gyr),
+            feh=(-0.2, 0.2, 0.2),
             cmd_version="3.7",
             output_fname="downloaded.ssv",
         ).decode()

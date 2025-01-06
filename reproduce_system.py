@@ -444,8 +444,10 @@ def find_evolution(system,
                     print(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)
                     # If ecc_i is weird we're going to catch it later; for now,
                     # keep the error in porb the same as the previous step
-                    porb_i = laststeps[-1][2] if (ecc_i < 0 or ecc_i > 0.8) else \
-                        unchange_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)[0]
+                    if (ecc_i < 0 or ecc_i > 0.8) and len(laststeps) > 0:
+                        porb_i = laststeps[-1][2]
+                    else:
+                        porb_i = unchange_variables(system.primary_mass.to(units.M_sun).value,system.secondary_mass.to(units.M_sun).value,ecc_true,porb_true,ecc_i,dL)[0]
                     error_out = [(porb_i.real-porb_true)*porb_sign,(ecc_i-ecc_true)*ecc_sign]
                 elif solve_type == "obliq": #TODO: change of variables?
                     porb_i = variable_conditions[0]

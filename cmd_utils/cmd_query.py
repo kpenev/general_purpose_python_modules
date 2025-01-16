@@ -43,7 +43,7 @@ def _submit_query(
     try:
         age = _format_query_range(age, u.yr * u.dex)
         log_age = "1"
-    except u.errors.UnitConversionError:
+    except u.UnitConversionError:
         age = _format_query_range(age, u.yr)
         log_age = "0"
     cmd_url = _cmd_url + "/cmd" + (f"_{cmd_version}" if cmd_version else "")
@@ -59,7 +59,7 @@ def _submit_query(
         "kind_interp": "1",
         "kind_postagb": "-1",
         "photsys_file": "YBC_tab_mag_odfnew/tab_mag_ubvrijhk.dat",
-        "photsys_version": "YBC",
+        "photsys_version": "YBCnewVega",
         "dust_sourceM": "dpmod60alox40",
         "dust_sourceC": "AMCSIC15",
         "kind_mag": "2",
@@ -72,7 +72,9 @@ def _submit_query(
         "isoc_agelow": age[0],
         "isoc_ageupp": age[1],
         "isoc_dage": age[2],
-        "isoc_dlage": "0.0",
+        "isoc_lagelow": age[0],
+        "isoc_lageupp": age[1],
+        "isoc_dlage": age[2],
         "isoc_ismetlog": "1",
         "isoc_zlow": "0.0152",
         "isoc_zupp": "0.03",

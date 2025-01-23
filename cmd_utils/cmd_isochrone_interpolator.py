@@ -5,6 +5,7 @@ import os.path
 
 from matplotlib import pyplot
 import numpy
+from astropy import units as u, constants as c
 
 
 class IsochroneFileIterator:
@@ -283,17 +284,61 @@ def plot_isochrone(cmd_fname):
 
     log_age = numpy.linspace(0.0, 1.0, 1000)
     track_values = [
-        interpolator(("logTe", "logL"), 1.0, MH=0.0, logAge=9.0 + logt)
+        interpolator(
+            ("logTe", "logL", "logg", "Mass"), 1.0, MH=0.0, logAge=9.0 + logt
+        )
         for logt in log_age
     ]
     track = {
         "logTe": numpy.array([v[0] for v in track_values]),
         "logL": numpy.array([v[1] for v in track_values]),
+        "logg": numpy.array([v[2] for v in track_values]),
+        "Mass": numpy.array([v[3] for v in track_values]),
     }
 
     pyplot.plot(-track["logTe"], track["logL"], "-k")
     pyplot.xlabel("-Teff")
     pyplot.ylabel("L")
+    pyplot.show()
+
+    pyplot.plot(
+        log_age,
+        numpy.sqrt(
+            c.G
+            * track["Mass"]
+            * c.M_sun
+            / (10 ** track["logg"] * u.cm / u.s**2)
+        ).to_value(u.R_sun),
+        "-r",
+    )
+    pyplot.plot(
+        log_age,
+        (
+            10.0 ** (track["logL"] / 2.0 - 2.0 * track["logTe"])
+            / (2.0 * u.K**2)
+            * numpy.sqrt(c.L_sun / (numpy.pi * c.sigma_sb))
+        ).to_value(u.R_sun),
+        "-g",
+    )
+    pyplot.show()
+
+    pyplot.plot(
+        log_age,
+        (
+            (
+                10.0 ** (track["logL"] / 2.0 - 2.0 * track["logTe"])
+                / (2.0 * u.K**2)
+                * numpy.sqrt(c.L_sun / (numpy.pi * c.sigma_sb))
+            )
+            / numpy.sqrt(
+                c.G
+                * track["Mass"]
+                * c.M_sun
+                / (10 ** track["logg"] * u.cm / u.s**2)
+            )
+        ).to_value(""),
+        "-k",
+    )
     pyplot.show()
 
 

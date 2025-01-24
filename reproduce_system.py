@@ -796,6 +796,7 @@ def find_evolution(system,
         except:
             logger.exception('Failed to calculate min_porb_initial.')
             min_porb_initial = 0.0
+        logger.debug('min_porb_initial: %f',min_porb_initial)
         porb_min, porb_max = scipy.nan, scipy.nan
         porb_correct = search_porb if search_porb is not None else system.orbital_period.to_value("day")
         porb_initial = porb_correct * 3

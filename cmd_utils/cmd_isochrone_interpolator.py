@@ -177,7 +177,7 @@ class CMDInterpolator:
             self.header = isochrone.header
 
         self.isochrone_fname = isochrone_fname
-        self.grid = tuple(
+        self._grid = tuple(
             (quantity, numpy.array(values))
             for quantity, values in self._get_interpolation_grid()
             if len(values) > 1
@@ -203,15 +203,24 @@ class CMDInterpolator:
         """
 
         return grid_tracks_interpolate(
-            interpolate_to, quantities, self.grid, self._data
+            interpolate_to, quantities, self._grid, self._data
         )
+
+    def get_range(self, quantity):
+        """Return the available interpolation range of the given quantity."""
+
+        if quantity == 'Mini':
+            return self._data[0]['Mini'][0], self._data[0]['Mini'][-1]
+        for name, values in self._grid:
+            if name == quantity:
+                return values[0], values[-1]
+        raise ValueError(f"Unknown grid quantity {quantity}!")
 
 
 def plot_isochrone(cmd_fname):
     """Plot an isochrone read from the CMD interface."""
 
     interpolator = CMDInterpolator(cmd_fname)
-    print(f"Grid: {interpolator.grid!r}")
     print(
         "4.7Gyr Sun Teff = "
         + repr(

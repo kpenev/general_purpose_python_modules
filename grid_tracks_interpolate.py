@@ -45,6 +45,7 @@ def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
             for q in quantities
         )
 
+    interpolate_to = interpolate_to.copy()
     var_name, var_grid = grid[0]
     target = interpolate_to.pop(var_name)
     if target < var_grid[0] or target > var_grid[-1]:
@@ -80,11 +81,6 @@ def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
             evaluate_track(data[above_ind - 1]),
             evaluate_track(data[above_ind]),
         )
-    print(
-        f"Interpolating {quantities} to {var_name} = {target}: "
-        f"x = {var_grid[above_ind - 1 : above_ind + 1]} "
-        f"y = {closest_values}"
-    )
     return tuple(
         numpy.interp(
             target, var_grid[above_ind - 1 : above_ind + 1], var_values

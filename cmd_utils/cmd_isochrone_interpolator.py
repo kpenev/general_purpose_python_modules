@@ -5,7 +5,7 @@ import os.path
 
 from matplotlib import pyplot
 import numpy
-import scipy.interpolate
+from astropy import units as u, constants as c
 
 
 class IsochroneFileIterator:
@@ -24,18 +24,21 @@ class IsochroneFileIterator:
     def __init__(self, isochrone_fname):
         """Create the iterator."""
 
-        self._isochrone = open(isochrone_fname, "r", encoding="utf-8")
         self._line = ""
         self.header = []
+        self._isochrone_fname = isochrone_fname
+        self._isochrone = None
+
+    def __enter__(self):
+        """Just return self."""
+
+        self._isochrone = open(self._isochrone_fname, "r", encoding="utf-8")
         while True:
             self._line = self._isochrone.readline()
             assert self._line[0] == "#"
             if self._line.startswith("# Zini"):
                 break
             self.header.append(self._line)
-
-    def __enter__(self):
-        """Just return self."""
 
         return self
 
@@ -157,13 +160,16 @@ class CMDInterpolator:
         return grid
 
     @staticmethod
-    def _interpolate(quantity, grid, data, initial_mass, track_properties):
+    def _interpolate(quantities, grid, data, initial_mass, track_properties):
         """Used to recursively implement `__call__()`."""
 
         def evaluate_track(track):
             """Interpolate the given track to the specified mass."""
 
-            return numpy.interp(initial_mass, track["Mini"], track[quantity])
+            return tuple(
+                numpy.interp(initial_mass, track["Mini"], track[q])
+                for q in quantities
+            )
 
         var_name, var_grid = grid[0]
         print(f"{var_name} grid: {var_grid}")
@@ -179,7 +185,7 @@ class CMDInterpolator:
             if len(grid) == 1:
                 return evaluate_track(data[above_ind])
             return CMDInterpolator._interpolate(
-                quantity,
+                quantities,
                 grid[1:],
                 data[
                     above_ind
@@ -193,7 +199,7 @@ class CMDInterpolator:
         if sub_grid:
             closest_values = tuple(
                 CMDInterpolator._interpolate(
-                    quantity,
+                    quantities,
                     sub_grid,
                     data[ind * grid[1][1].size : (ind + 1) * grid[1][1].size],
                     initial_mass,
@@ -207,12 +213,15 @@ class CMDInterpolator:
                 evaluate_track(data[above_ind]),
             )
         print(
-            f"Interpolating {quantity} to {var_name} = {target}: "
+            f"Interpolating {quantities} to {var_name} = {target}: "
             f"x = {var_grid[above_ind - 1 : above_ind + 1]} "
             f"y = {closest_values}"
         )
-        return numpy.interp(
-            target, var_grid[above_ind - 1 : above_ind + 1], closest_values
+        return tuple(
+            numpy.interp(
+                target, var_grid[above_ind - 1 : above_ind + 1], var_values
+            )
+            for var_values in zip(*closest_values)
         )
 
     def __init__(self, isochrone_fname):
@@ -231,36 +240,30 @@ class CMDInterpolator:
             if len(values) > 1
         )
 
-    def __call__(self, quantity, initial_mass, **track_properties):
+    def __call__(self, quantities, initial_mass, **track_properties):
         """
-        Estimate the given quantity for a star of given initial mass & [Fe/H].
+        Estimate the given quantities for a star of given initial mass & [Fe/H].
 
         Args:
-            quantity(str):    The quantity to estimate. Should be one of the
-                columns in the CMD isochrone file.
+            quantities(iterable of str):    The quantities to estimate. Should
+                be a subset of the columns in the CMD isochrone file.
 
             initial_mass(float):    The initial mass of the star for which to
-                estimate the given quantity in solar masses.
+                estimate the given quantities in solar masses.
 
             track_properties:    The value of [Z/H] and/or logAge of the star
-                for which to estimate the given quantity. Values for quantities
-                that had only a single value in the input data are ignored.
+                for which to estimate the given quantities. Values for
+                quantities that had only a single value in the input data are
+                ignored.
 
         Return:
-            float:
-                The value of the quantity estimated using linear interpolation
-                in all dimensions.
+            tuple of floats:
+                The values of the quantities estimated using linear
+                interpolation in all dimensions.
         """
 
         return self._interpolate(
-            quantity, self.grid, self.data, initial_mass, track_properties
-        )
-
-    def interpolate(self, quantity):
-        """Return an interplolator over the given quantity."""
-
-        return lambda initial_mass, feh: self.get_interpolated(
-            quantity, initial_mass, feh
+            quantities, self.grid, self.data, initial_mass, track_properties
         )
 
 
@@ -273,24 +276,69 @@ def plot_isochrone(cmd_fname):
         "4.7Gyr Sun Teff = "
         + repr(
             10.0
-            ** interpolator("logTe", 1.0, MH=0.0, logAge=9.0 + numpy.log10(4.7))
+            ** interpolator(
+                ("logTe",), 1.0, MH=0.0, logAge=9.0 + numpy.log10(4.7)
+            )[0]
         )
     )
 
     log_age = numpy.linspace(0.0, 1.0, 1000)
-    track = {
-        quantity: numpy.array(
-            [
-                interpolator(quantity, 1.0, MH=0.0, logAge=9.0 + logt)
-                for logt in log_age
-            ]
+    track_values = [
+        interpolator(
+            ("logTe", "logL", "logg", "Mass"), 1.0, MH=0.0, logAge=9.0 + logt
         )
-        for quantity in ["logTe", "logL"]
+        for logt in log_age
+    ]
+    track = {
+        "logTe": numpy.array([v[0] for v in track_values]),
+        "logL": numpy.array([v[1] for v in track_values]),
+        "logg": numpy.array([v[2] for v in track_values]),
+        "Mass": numpy.array([v[3] for v in track_values]),
     }
 
     pyplot.plot(-track["logTe"], track["logL"], "-k")
     pyplot.xlabel("-Teff")
     pyplot.ylabel("L")
+    pyplot.show()
+
+    pyplot.plot(
+        log_age,
+        numpy.sqrt(
+            c.G
+            * track["Mass"]
+            * c.M_sun
+            / (10 ** track["logg"] * u.cm / u.s**2)
+        ).to_value(u.R_sun),
+        "-r",
+    )
+    pyplot.plot(
+        log_age,
+        (
+            10.0 ** (track["logL"] / 2.0 - 2.0 * track["logTe"])
+            / (2.0 * u.K**2)
+            * numpy.sqrt(c.L_sun / (numpy.pi * c.sigma_sb))
+        ).to_value(u.R_sun),
+        "-g",
+    )
+    pyplot.show()
+
+    pyplot.plot(
+        log_age,
+        (
+            (
+                10.0 ** (track["logL"] / 2.0 - 2.0 * track["logTe"])
+                / (2.0 * u.K**2)
+                * numpy.sqrt(c.L_sun / (numpy.pi * c.sigma_sb))
+            )
+            / numpy.sqrt(
+                c.G
+                * track["Mass"]
+                * c.M_sun
+                / (10 ** track["logg"] * u.cm / u.s**2)
+            )
+        ).to_value(""),
+        "-k",
+    )
     pyplot.show()
 
 

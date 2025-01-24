@@ -7,6 +7,8 @@ from matplotlib import pyplot
 import numpy
 from astropy import units as u, constants as c
 
+from general_purpose_python_modules import grid_tracks_interpolate
+
 
 class IsochroneFileIterator:
     """
@@ -81,16 +83,22 @@ class CMDInterpolator:
         header([str]):    The comment lines in the beginning of the isochrone
             file.
 
-        data([numpy field array]):    A the data contained in the isochrone
+        isochrone_fname(str):    The name of the file from which interpolation
+            data was read.
+
+        grid([str, []):    The names of the indepnedent interpolation variables
+            and the values of these variables at the grid points.
+
+        _data([numpy field array]):    A the data contained in the isochrone
             file downloaded from the CMD interface, organized as a list of
             numpy field arrays, one for each section (corresponding to a
-            single [Fe/H] value)
+            single combination of [Fe/H] and age)
     """
 
     def _get_interpolation_grid(self):
         """Sanity check on the input data and prepare the interpolation."""
 
-        for section_index, section_data in enumerate(self.data):
+        for section_index, section_data in enumerate(self._data):
             for quantity in ["MH", "logAge"]:
                 assert numpy.unique(section_data[quantity]).size == 1
             section_label = {
@@ -159,76 +167,11 @@ class CMDInterpolator:
                 # pylint: enable=used-before-assignment
         return grid
 
-    @staticmethod
-    def _interpolate(quantities, grid, data, initial_mass, track_properties):
-        """Used to recursively implement `__call__()`."""
-
-        def evaluate_track(track):
-            """Interpolate the given track to the specified mass."""
-
-            return tuple(
-                numpy.interp(initial_mass, track["Mini"], track[q])
-                for q in quantities
-            )
-
-        var_name, var_grid = grid[0]
-        print(f"{var_name} grid: {var_grid}")
-        target = track_properties.pop(var_name)
-        if target < var_grid[0] or target > var_grid[-1]:
-            raise ValueError(
-                f"Requested {var_name} ({target}) is outside the available "
-                "interpolation range: "
-                f"{var_grid[0]} < {var_name} < {var_grid[-1]}"
-            )
-        above_ind = numpy.searchsorted(var_grid, target)
-        if var_grid[above_ind] == target:
-            if len(grid) == 1:
-                return evaluate_track(data[above_ind])
-            return CMDInterpolator._interpolate(
-                quantities,
-                grid[1:],
-                data[
-                    above_ind
-                    * grid[1][1].size : (above_ind + 1)
-                    * grid[1][1].size
-                ],
-                initial_mass,
-                track_properties,
-            )
-        sub_grid = grid[1:]
-        if sub_grid:
-            closest_values = tuple(
-                CMDInterpolator._interpolate(
-                    quantities,
-                    sub_grid,
-                    data[ind * grid[1][1].size : (ind + 1) * grid[1][1].size],
-                    initial_mass,
-                    track_properties,
-                )
-                for ind in [above_ind - 1, above_ind]
-            )
-        else:
-            closest_values = (
-                evaluate_track(data[above_ind - 1]),
-                evaluate_track(data[above_ind]),
-            )
-        print(
-            f"Interpolating {quantities} to {var_name} = {target}: "
-            f"x = {var_grid[above_ind - 1 : above_ind + 1]} "
-            f"y = {closest_values}"
-        )
-        return tuple(
-            numpy.interp(
-                target, var_grid[above_ind - 1 : above_ind + 1], var_values
-            )
-            for var_values in zip(*closest_values)
-        )
-
     def __init__(self, isochrone_fname):
         """Interpolate within the given isochrone grid."""
 
         with IsochroneFileIterator(isochrone_fname) as isochrone:
-            self.data = [
+            self._data = [
                 numpy.genfromtxt(section, names=True) for section in isochrone
             ]
             self.header = isochrone.header
@@ -240,7 +183,7 @@ class CMDInterpolator:
             if len(values) > 1
         )
 
-    def __call__(self, quantities, initial_mass, **track_properties):
+    def __call__(self, quantities, **interpolate_to):
         """
         Estimate the given quantities for a star of given initial mass & [Fe/H].
 
@@ -248,11 +191,8 @@ class CMDInterpolator:
             quantities(iterable of str):    The quantities to estimate. Should
                 be a subset of the columns in the CMD isochrone file.
 
-            initial_mass(float):    The initial mass of the star for which to
-                estimate the given quantities in solar masses.
-
-            track_properties:    The value of [Z/H] and/or logAge of the star
-                for which to estimate the given quantities. Values for
+            interpolate_to(dict):    The value of [Z/H], logAge and Mini of the
+                star for which to estimate the given quantities. Values for
                 quantities that had only a single value in the input data are
                 ignored.
 
@@ -262,8 +202,8 @@ class CMDInterpolator:
                 interpolation in all dimensions.
         """
 
-        return self._interpolate(
-            quantities, self.grid, self.data, initial_mass, track_properties
+        return grid_tracks_interpolate(
+            interpolate_to, quantities, self.grid, self._data
         )
 
 
@@ -277,7 +217,7 @@ def plot_isochrone(cmd_fname):
         + repr(
             10.0
             ** interpolator(
-                ("logTe",), 1.0, MH=0.0, logAge=9.0 + numpy.log10(4.7)
+                ("logTe",), Mini=1.0, MH=0.0, logAge=9.0 + numpy.log10(4.7)
             )[0]
         )
     )
@@ -285,7 +225,10 @@ def plot_isochrone(cmd_fname):
     log_age = numpy.linspace(0.0, 1.0, 1000)
     track_values = [
         interpolator(
-            ("logTe", "logL", "logg", "Mass"), 1.0, MH=0.0, logAge=9.0 + logt
+            ("logTe", "logL", "logg", "Mass"),
+            Mini=1.0,
+            MH=0.0,
+            logAge=9.0 + logt,
         )
         for logt in log_age
     ]

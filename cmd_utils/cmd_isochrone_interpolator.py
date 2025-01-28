@@ -95,6 +95,33 @@ class CMDInterpolator:
             single combination of [Fe/H] and age)
     """
 
+    def _validate_input_data(self):
+        """Check if input data satisfies the assumptions for interpolation."""
+
+        valid = True
+        message = (
+            "Non-monotonic initial mass in isochrone "
+            f"{self.isochrone_fname}:\n"
+        )
+
+        for section_index, section_data in enumerate(self._data):
+            invalid = (
+                section_data[self.interp_var][1:]
+                - section_data[self.interp_var][:-1]
+            ) < 0
+            if invalid.any():
+                for bad_index in numpy.nonzero(invalid):
+                    message += (
+                        f"Section {section_index} m[{bad_index}] = "
+                        f"{section_data[self.interp_var][bad_index]}, "
+                        f"m[{bad_index + 1}] = "
+                        f"{section_data[self.interp_var][bad_index + 1]}"
+                        "\n"
+                    )
+                valid = False
+        if not valid:
+            raise ValueError(message)
+
     def _get_interpolation_grid(self):
         """Sanity check on the input data and prepare the interpolation."""
 
@@ -105,20 +132,6 @@ class CMDInterpolator:
                 quantity: float(section_data[quantity][0])
                 for quantity in ["MH", "logAge"]
             }
-
-            invalid = (section_data["Mini"][1:] - section_data["Mini"][:-1]) < 0
-            if invalid.any():
-                message = (
-                    "Non-monotonic initial mass in isochrone "
-                    f"{self.isochrone_fname}: "
-                )
-                for bad_index in numpy.nonzero(invalid):
-                    message += (
-                        f"m[{bad_index}] = {section_data['Mini'][bad_index]}, "
-                        f"m[{bad_index + 1}] = "
-                        f"{section_data['Mini'][bad_index + 1]}"
-                    )
-                raise ValueError(message)
 
             if section_index == 0:
                 first_label = section_label
@@ -167,7 +180,7 @@ class CMDInterpolator:
                 # pylint: enable=used-before-assignment
         return grid
 
-    def __init__(self, isochrone_fname):
+    def __init__(self, isochrone_fname, interp_var="Mini"):
         """Interpolate within the given isochrone grid."""
 
         with IsochroneFileIterator(isochrone_fname) as isochrone:
@@ -175,8 +188,9 @@ class CMDInterpolator:
                 numpy.genfromtxt(section, names=True) for section in isochrone
             ]
             self.header = isochrone.header
-
+        self.interp_var = interp_var
         self.isochrone_fname = isochrone_fname
+        self._validate_input_data()
         self._grid = tuple(
             (quantity, numpy.array(values))
             for quantity, values in self._get_interpolation_grid()
@@ -191,8 +205,8 @@ class CMDInterpolator:
             quantities(iterable of str):    The quantities to estimate. Should
                 be a subset of the columns in the CMD isochrone file.
 
-            interpolate_to(dict):    The value of [Z/H], logAge and Mini of the
-                star for which to estimate the given quantities. Values for
+            interpolate_to(dict):    The value of [Z/H], logAge and Mini/Mass of
+                the star for which to estimate the given quantities. Values for
                 quantities that had only a single value in the input data are
                 ignored.
 
@@ -209,8 +223,11 @@ class CMDInterpolator:
     def get_range(self, quantity):
         """Return the available interpolation range of the given quantity."""
 
-        if quantity == 'Mini':
-            return self._data[0]['Mini'][0], self._data[0]['Mini'][-1]
+        if quantity == self.interp_var:
+            return (
+                self._data[0][self.interp_var][0],
+                self._data[0][self.interp_var][-1],
+            )
         for name, values in self._grid:
             if name == quantity:
                 return values[0], values[-1]

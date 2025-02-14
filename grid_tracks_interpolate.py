@@ -81,9 +81,11 @@ def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
             evaluate_track(data[above_ind - 1]),
             evaluate_track(data[above_ind]),
         )
-    return tuple(
-        numpy.interp(
-            target, var_grid[above_ind - 1 : above_ind + 1], var_values
-        )
-        for var_values in zip(*closest_values)
+    return numpy.array(
+        [
+            numpy.interp(
+                target, var_grid[above_ind - 1 : above_ind + 1], var_values
+            )
+            for var_values in zip(*closest_values)
+        ]
     )

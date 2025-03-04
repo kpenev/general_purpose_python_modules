@@ -34,6 +34,7 @@ def _submit_query(
     ),
     feh=0.0,
     visual_extinction=0.0,
+    photsys="ubvrijhk",
     cmd_version=None,
     timeout,
 ):
@@ -58,7 +59,7 @@ def _submit_query(
         "eta_reimers": "0.2",
         "kind_interp": "1",
         "kind_postagb": "-1",
-        "photsys_file": "YBC_tab_mag_odfnew/tab_mag_ubvrijhk.dat",
+        "photsys_file": f"YBC_tab_mag_odfnew/tab_mag_{photsys}.dat",
         "photsys_version": "YBCnewVega",
         "dust_sourceM": "dpmod60alox40",
         "dust_sourceC": "AMCSIC15",
@@ -117,13 +118,6 @@ def _submit_query(
     return response.text
 
 
-# TODO: decide retrun format: file vs interpolator.
-
-
-# TODO: allow querrying in uniform steps of log(age) instead of age. Actually
-#       should be default
-
-
 def query_cmd(
     output_fname=None,
     timeout=600.0,
@@ -153,6 +147,7 @@ def query_cmd(
     Returns:
         str or None:
             If output_fname is specified, returns None, else returns the
+            downloaded file content.
     """
 
     bs_response = BeautifulSoup(

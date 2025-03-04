@@ -827,7 +827,7 @@ class InitialValueFinder:
                     #     model.just_fit()
                 except Exception as e:
                     logger.error('Error in storing data: %s', repr(e))
-                    raise e
+                    #raise e
                 finally:
                     if carepackage['lock'] is not None:
                         logger.debug('Releasing parallel processing lock.')

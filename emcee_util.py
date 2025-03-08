@@ -86,6 +86,7 @@ def load_initial_positions(
     starting_log_prob = None
     starting_blobs = None
 
+    positions_found = numpy.zeros(num_walkers, dtype=bool)
     with h5py.File(samples_fname, "r") as samples_file:
         if "starting_positions" in samples_file[chain_name]:
             position_group = samples_file[chain_name]["starting_positions"]
@@ -93,7 +94,6 @@ def load_initial_positions(
             if "defined" in position_group:
                 positions_found = position_group["defined"][:]
             else:
-                positions_found = numpy.zeros(num_walkers, dtype=bool)
                 positions_found[
                     : position_group.attrs["num_positions_found"]
                 ] = True
@@ -121,23 +121,20 @@ def load_initial_positions(
                         tuple(row) for row in log_prob_results[:, 1:]
                     ]
 
-        else:
-            positions_found = 0
-
     _logger.info(
         "Loaded %d/%d starting positions from a previous run.",
         positions_found,
-        num_walkers or starting_positions.shape[0],
+        num_walkers or starting_positions.sum(),
     )
     if num_walkers is None:
         return starting_positions
     if starting_log_prob is None:
-        return (starting_positions, positions_found.sum())
+        return starting_positions, positions_found
     if starting_blobs is None:
-        return (starting_positions, starting_log_prob, positions_found.sum())
+        return starting_positions, starting_log_prob, positions_found
     return (
         starting_positions,
         starting_log_prob,
         starting_blobs,
-        positions_found.sum(),
+        positions_found
     )

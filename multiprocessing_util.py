@@ -9,53 +9,67 @@ from glob import glob
 
 import git
 
+
 def get_code_version_str():
     """Return a string identifying the version of the code being used."""
 
     repository = git.Repo(
         os.path.dirname(
-            os.path.dirname(
-                os.path.dirname(
-                    os.path.abspath(__file__)
-                )
-            )
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
     )
     head_sha = repository.commit().hexsha
     if repository.is_dirty():
-        return head_sha + ':dirty'
+        return head_sha + ":dirty"
     return head_sha
+
+
+default_config = {
+    "task": "calculate",
+    "fname_datetime_format": "%Y%m%d%H%M%S",
+    "std_out_err_fname": "{task}_{now!s}_{pid:d}.outerr",
+    "logging_fname": "{task}_{now!s}_{pid:d}.log",
+    "logging_verbosity": "info",
+    "logging_message_format": (
+        "%(levelname)s %(asctime)s %(name)s: %(message)s | "
+        "%(pathname)s.%(funcName)s:%(lineno)d"
+    ),
+}
 
 
 def get_log_outerr_filenames(existing_pid=False, **config):
     """Return the filenames where `setup_process()` redirects log and output."""
 
-    if 'task' not in config:
-        config['task'] = 'calculate'
     config.update(
-        now=('*' if existing_pid
-             else datetime.now().strftime(config['fname_datetime_format'])),
-        pid=(existing_pid or os.getpid())
+        now=(
+            "*"
+            if existing_pid
+            else datetime.now().strftime(config["fname_datetime_format"])
+        ),
+        pid=(existing_pid or os.getpid()),
     )
 
-    if existing_pid == '*':
-        pid_rex = re.compile(r'\{pid[^}]*\}')
+    if existing_pid == "*":
+        pid_rex = re.compile(r"\{pid[^}]*\}")
+
         def prepare(format_str):
-            return '*'.join(pid_rex.split(format_str))
+            return "*".join(pid_rex.split(format_str))
+
     else:
+
         def prepare(format_str):
             return format_str
 
-    if config['std_out_err_fname'] is None:
+    if config["std_out_err_fname"] is None:
         std_out_err_fname = None
     else:
-        std_out_err_fname = prepare(config['std_out_err_fname']).format_map(
+        std_out_err_fname = prepare(config["std_out_err_fname"]).format_map(
             config
         )
 
     result = (
-        prepare(config['logging_fname']).format_map(config),
-        std_out_err_fname
+        prepare(config["logging_fname"]).format_map(config),
+        std_out_err_fname,
     )
 
     if existing_pid:
@@ -106,6 +120,9 @@ def setup_process(**config):
                 if not os.path.isdir(dirname):
                     raise
 
+    for param, value in default_config.items():
+        if param not in config:
+            config[param] = value
 
     logging_fname, std_out_err_fname = get_log_outerr_filenames(**config)
     if std_out_err_fname is not None:
@@ -114,7 +131,7 @@ def setup_process(**config):
         io_destination = os.open(
             std_out_err_fname,
             os.O_WRONLY | os.O_TRUNC | os.O_CREAT | os.O_DSYNC,
-            mode=0o666
+            mode=0o666,
         )
         os.dup2(io_destination, 1)
         os.dup2(io_destination, 2)
@@ -125,17 +142,18 @@ def setup_process(**config):
         logging.root.removeHandler(handler)
         handler.close()
     logging_config = {
-        'filename': logging_fname,
-        'level': getattr(
+        "filename": logging_fname,
+        "level": getattr(
             logging,
-            config.get('logging_verbosity', config.get('verbose')).upper()
+            config.get("logging_verbosity", config.get("verbose")).upper(),
         ),
-        'format': config['logging_message_format']
+        "format": config["logging_message_format"],
     }
-    if config.get('logging_datetime_format') is not None:
-        logging_config['datefmt'] = config['logging_datetime_format']
+    if config.get("logging_datetime_format") is not None:
+        logging_config["datefmt"] = config["logging_datetime_format"]
 
     logging.basicConfig(**logging_config)
+
 
 def setup_process_map(config):
     """Like `setup_process`, but more convenient for `multiprocessing.Pool`."""

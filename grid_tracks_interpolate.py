@@ -36,6 +36,13 @@ def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
 
         assert len(interpolate_to) == 1
         name, value = next(iter(interpolate_to.items()))
+        if not track[name][0] <= value <= track[name][-1]:
+            raise ValueError(
+                f"Interpolation only defined for {track[name][0]} <= {name} <= "
+                f"{track[name][-1]}. Attempting to evaluate at {name} = "
+                f"{value}",
+                name
+            )
         return tuple(
             numpy.interp(
                 value,
@@ -52,7 +59,7 @@ def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
         raise ValueError(
             f"Requested {var_name} ({target}) is outside the available "
             "interpolation range: "
-            f"{var_grid[0]} < {var_name} < {var_grid[-1]}"
+            f"{var_grid[0]} < {var_name} < {var_grid[-1]}", var_name
         )
     above_ind = numpy.searchsorted(var_grid, target)
     data_step = reduce(lambda s, g: s * g[1].size, grid[1:], 1)

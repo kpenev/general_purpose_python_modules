@@ -111,7 +111,9 @@ class InitialValueFinder:
                                          interpolation_age)
         logger.debug('By the way, the interpolation age is %s', repr(interpolation_age))
         if dissipation is not None:
+            logger.debug('Dissipation is not none.')
             star.set_dissipation(zone_index=0, **dissipation)
+            logger.debug('Successfully set star dissipation.')
         return star
 
     def _create_primary(self):
@@ -229,6 +231,7 @@ class InitialValueFinder:
             disk_dissipation_age=self.configuration['disk_dissipation_age'],
             secondary_formation_age=self.target_state.planet_formation_age
         )
+        logger.debug('Binary made.')
         #pylint: enable=no-member
         binary.configure(age=primary.core_formation_age(),
                          semimajor=float('nan'),
@@ -237,6 +240,7 @@ class InitialValueFinder:
                          inclination=None,
                          periapsis=None,
                          evolution_mode='LOCKED_SURFACE_SPIN')
+        logger.debug('Binary configured.')
         if isinstance(secondary, EvolvingStar):
             initial_obliquity = numpy.array([0.0])
             initial_periapsis = numpy.array([0.0])
@@ -261,9 +265,13 @@ class InitialValueFinder:
             zero_outer_inclination=True,
             zero_outer_periapsis=True
         )
+        logger.debug('Secondary configured.')
         primary.detect_stellar_wind_saturation()
+        logger.debug('Primary detected stellar wind saturation.')
         if isinstance(secondary, EvolvingStar):
+            logger.debug('We will do that for secondary too.')
             secondary.detect_stellar_wind_saturation()
+        logger.debug('We did it.')
         return binary
     
     @staticmethod
@@ -520,10 +528,11 @@ class InitialValueFinder:
         """Return the angular momentum of the secondary when binary forms."""
 
         logger = logging.getLogger(__name__)
-
+        logger.debug('Creating secondary.')
         secondary = self._create_secondary(False)
 
         if not self.secondary_star:
+            logger.debug('Not self.secondary_star.')
             return (
                 (
                     2.0 * numpy.pi / self.configuration['secondary_disk_period']
@@ -532,9 +541,10 @@ class InitialValueFinder:
                 )
                 ,
             )
-
+        logger.debug('Creating planet for mock companion.')
         mock_companion = self._create_planet(1.0 * units.M_jup,
                                              1.0 * units.R_jup)
+        logger.debug('Creating binary.')
         binary = Binary(
             primary=secondary,
             secondary=mock_companion,
@@ -561,7 +571,7 @@ class InitialValueFinder:
                          evolution_mode='LOCKED_SURFACE_SPIN')
 
         secondary.detect_stellar_wind_saturation()
-
+        logger.debug('Evolving binary.')
         binary.evolve(
             final_age=self.configuration['disk_dissipation_age'],
             **self._get_combined_evolve_args(evolve_kwargs)
@@ -616,6 +626,7 @@ class InitialValueFinder:
         initial_obliquity=initial_conditions[2]
 
         logger = logging.getLogger(__name__)
+        logger.debug('Angmom: %s, ', repr(initial_secondary_angmom))
 
         primary = self._create_primary()
         secondary = self._create_secondary()
@@ -652,6 +663,7 @@ class InitialValueFinder:
             initial_obliquity=initial_obliquity,
             initial_secondary_angmom=initial_secondary_angmom
         )
+        logger.debug('System created.')
 
         #if max_age is None:
         max_age = self.target_state.age
@@ -665,10 +677,12 @@ class InitialValueFinder:
             None,
             timeout=3600
             )
+        logger.debug('Binary evolved.')
 
         final_state=binary.final_state()
         logger.debug('Final state age: %s, ',
                                           repr(final_state.age))
+        print('Final state age: ',final_state.age)
         logger.debug('Target state age: %s, ',
                                             repr(self.target_state.age))
         logger.debug('Initial eccentricity: %s, ',
@@ -693,12 +707,12 @@ class InitialValueFinder:
             import datetime
             from astropy.table import Table
 
-            filename = 'failed_solutions'
+            filename = '/work/08402/vortebo/ls6/failed_solutions'
 
             # Make it clear which system the file is for, if possible
             if carepackage is not None:
                 filename = filename + f'/{carepackage["system_name"]}'
-            
+
             # Create the directory if it doesn't exist
             os.makedirs(filename, exist_ok=True)
 
@@ -813,7 +827,7 @@ class InitialValueFinder:
                     #     model.just_fit()
                 except Exception as e:
                     logger.error('Error in storing data: %s', repr(e))
-                    raise e
+                    #raise e
                 finally:
                     if carepackage['lock'] is not None:
                         logger.debug('Releasing parallel processing lock.')

@@ -99,9 +99,7 @@ def load_initial_positions(
                 ] = True
 
             if num_walkers is not None:
-                starting_positions[positions_found, :] = position_group[
-                    "positions"
-                ][positions_found, :]
+                starting_positions = position_group["positions"][:, :]
             else:
                 starting_positions = position_group["positions"][
                     positions_found, :
@@ -123,8 +121,8 @@ def load_initial_positions(
 
     _logger.info(
         "Loaded %d/%d starting positions from a previous run.",
-        positions_found,
-        num_walkers or starting_positions.sum(),
+        positions_found.sum(),
+        num_walkers or starting_positions.shape[0],
     )
     if num_walkers is None:
         return starting_positions

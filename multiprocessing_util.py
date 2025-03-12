@@ -6,6 +6,7 @@ from datetime import datetime
 import logging
 import re
 from glob import glob
+import inspect
 
 import git
 
@@ -13,11 +14,17 @@ import git
 def get_code_version_str():
     """Return a string identifying the version of the code being used."""
 
-    repository = git.Repo(
-        os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
-    )
+    check_path = os.path.abspath(inspect.stack()[1].filename)
+    repository = None
+    while check_path != '/':
+        check_path = os.path.dirname(check_path)
+        try:
+            repository = git.Repo(check_path)
+            break
+        except git.exc.InvalidGitRepositoryError:
+            pass
+    if repository is None:
+        return "Caller not under git version control."
     head_sha = repository.commit().hexsha
     if repository.is_dirty():
         return head_sha + ":dirty"
@@ -159,3 +166,6 @@ def setup_process_map(config):
     """Like `setup_process`, but more convenient for `multiprocessing.Pool`."""
 
     setup_process(**config)
+
+if __name__ == '__main__':
+    print(f'Code version: {get_code_version_str()}')

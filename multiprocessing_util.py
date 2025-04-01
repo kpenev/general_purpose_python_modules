@@ -16,7 +16,7 @@ def get_code_version_str():
 
     check_path = os.path.abspath(inspect.stack()[1].filename)
     repository = None
-    while check_path != '/':
+    while check_path != "/":
         check_path = os.path.dirname(check_path)
         try:
             repository = git.Repo(check_path)
@@ -128,7 +128,9 @@ def setup_process(**config):
                     raise
 
     for param, value in default_config.items():
-        if param not in config:
+        if param not in config and (
+            param != "logging_verbosity" or "verbose" not in config
+        ):
             config[param] = value
 
     logging_fname, std_out_err_fname = get_log_outerr_filenames(**config)
@@ -167,5 +169,6 @@ def setup_process_map(config):
 
     setup_process(**config)
 
-if __name__ == '__main__':
-    print(f'Code version: {get_code_version_str()}')
+
+if __name__ == "__main__":
+    print(f"Code version: {get_code_version_str()}")

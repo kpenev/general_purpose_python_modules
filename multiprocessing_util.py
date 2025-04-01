@@ -8,7 +8,10 @@ import re
 from glob import glob
 import inspect
 
-import git
+try:
+    import git
+except ImportError:
+    pass
 
 
 def get_code_version_str():

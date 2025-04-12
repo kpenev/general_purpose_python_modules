@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """Test the convergence of quantile estimates from emcee walker samples."""
 
-#from sys import float_info
+# from sys import float_info
 from functools import partial
 import logging
 
 import numpy
 from scipy.stats import rdist
 
-from general_purpose_python_modules.mcmc_quantile_convergence import \
-    get_approximate_markov
+from general_purpose_python_modules.mcmc_quantile_convergence import (
+    get_approximate_markov,
+)
 from general_purpose_python_modules.kde import KDEDistribution
 
 _logger = logging.getLogger(__name__)
+
 
 def regularize_discrete_chain(input_chain):
     """
@@ -43,7 +45,7 @@ def regularize_discrete_chain(input_chain):
 
     output_chain = numpy.empty(input_chain.shape, dtype=input_chain.dtype)
     for new, old in enumerate(represented_states):
-        update = (input_chain == old)
+        update = input_chain == old
         output_chain[update] = new
 
     return output_chain, represented_states
@@ -66,56 +68,53 @@ def get_emcee_burnin(regular_indicator_chain, burnin_tolerance):
             The number of burn-in steps.
     """
 
-#    def eval_burnin_equation_svd(leftover_tensor,
-#                                 leftover_singular_vals,
-#                                 burnin_tolerance,
-#                                 nsteps):
-#        """Calculate excess deviation from equilibrium PDF after nsteps."""
-#
-#        return leftover_tensor.dot(
-#            numpy.power(leftover_singular_vals, nsteps)
-#        ).max() - burnin_tolerance
+    #    def eval_burnin_equation_svd(leftover_tensor,
+    #                                 leftover_singular_vals,
+    #                                 burnin_tolerance,
+    #                                 nsteps):
+    #        """Calculate excess deviation from equilibrium PDF after nsteps."""
+    #
+    #        return leftover_tensor.dot(
+    #            numpy.power(leftover_singular_vals, nsteps)
+    #        ).max() - burnin_tolerance
 
-
-    def eval_burnin_equation_powers(transition_probabilities,
-                                    expected_distro,
-                                    nsteps):
+    def eval_burnin_equation_powers(
+        transition_probabilities, expected_distro, nsteps
+    ):
         """Calculate excess deviation from equilibrium PDF after nsteps."""
 
         return (
             numpy.linalg.matrix_power(transition_probabilities, nsteps)
-            -
-            expected_distro
+            - expected_distro
         ).max() - burnin_tolerance
 
-
-#    def get_burnin_equation(fitted_markov):
-#        """Return the equation to solve to find the burnin."""
-#
-#        left, singular_vals, right_trans = numpy.linalg.svd(
-#            fitted_markov.transition_probabilities.T
-#        )
-#        print('Left: ' + repr(left))
-#        print('SV: ' + repr(singular_vals))
-#        print('Right: ' + repr(right_trans))
-#        tolerance = 10.0 * float_info.epsilon * singular_vals.size
-#        assert numpy.abs(singular_vals[0] - 1) < tolerance
-#        assert (
-#            numpy.abs(
-#                left[:, 0] * right_trans[0, :]
-#                -
-#                fitted_markov.get_equilibrium_distro()
-#            )
-#            <
-#            tolerance
-#        )
-#
-#        leftover_tensor = left[:, None, 1:] * right_trans[1:, :].T[None, :, :]
-#
-#        return partial(eval_burnin_equation,
-#                       leftover_tensor,
-#                       singular_vals[1:],
-#                       burnin_tolerance)
+    #    def get_burnin_equation(fitted_markov):
+    #        """Return the equation to solve to find the burnin."""
+    #
+    #        left, singular_vals, right_trans = numpy.linalg.svd(
+    #            fitted_markov.transition_probabilities.T
+    #        )
+    #        print('Left: ' + repr(left))
+    #        print('SV: ' + repr(singular_vals))
+    #        print('Right: ' + repr(right_trans))
+    #        tolerance = 10.0 * float_info.epsilon * singular_vals.size
+    #        assert numpy.abs(singular_vals[0] - 1) < tolerance
+    #        assert (
+    #            numpy.abs(
+    #                left[:, 0] * right_trans[0, :]
+    #                -
+    #                fitted_markov.get_equilibrium_distro()
+    #            )
+    #            <
+    #            tolerance
+    #        )
+    #
+    #        leftover_tensor = left[:, None, 1:] * right_trans[1:, :].T[None, :, :]
+    #
+    #        return partial(eval_burnin_equation,
+    #                       leftover_tensor,
+    #                       singular_vals[1:],
+    #                       burnin_tolerance)
 
     def find_burnin_bracket(burnin_equation):
         """Return burnin range (min, max) that brackets the true value."""
@@ -123,9 +122,10 @@ def get_emcee_burnin(regular_indicator_chain, burnin_tolerance):
         burnin_min = 1
         burnin_equation_start = burnin_equation(burnin_min)
         if burnin_equation_start <= 0:
-            _logger.warning('Burn-in equation for burn-in of 1 step is %s'
-                            %
-                            repr(burnin_equation_start))
+            _logger.warning(
+                "Burn-in equation for burn-in of 1 step is %s",
+                repr(burnin_equation_start),
+            )
             return 0, 1
         burnin_max = 2
         while burnin_equation(burnin_max) > 0:
@@ -147,20 +147,23 @@ def get_emcee_burnin(regular_indicator_chain, burnin_tolerance):
     try:
         equilibrium_distro = fitted_markov.get_equilibrium_distro()
     except ValueError:
-        _logger.error('Failed to find equilibrium distribution')
+        _logger.error("Failed to find equilibrium distribution")
         return 0
 
-    burnin_equation = partial(eval_burnin_equation_powers,
-                              fitted_markov.transition_probabilities,
-                              equilibrium_distro)
+    burnin_equation = partial(
+        eval_burnin_equation_powers,
+        fitted_markov.transition_probabilities,
+        equilibrium_distro,
+    )
 
     burnin_min, burnin_max = find_burnin_bracket(burnin_equation)
 
     if burnin_max is None:
-        _logger.error('The following transition matrix fails to converge:\n%s',
-                      repr(fitted_markov.transition_probabilities))
+        _logger.error(
+            "The following transition matrix fails to converge:\n%s",
+            repr(fitted_markov.transition_probabilities),
+        )
         return 0
-
 
     while burnin_max - burnin_min > 1:
         midpoint = (burnin_max + burnin_min) // 2
@@ -172,15 +175,12 @@ def get_emcee_burnin(regular_indicator_chain, burnin_tolerance):
     return burnin_max * thin
 
 
-#The point is the initialization.
-#pylint: disable=too-few-public-methods
+# The point is the initialization.
+# pylint: disable=too-few-public-methods
 class DrawRandomCDF:
     """Generator of random realizations of CDF at quantile."""
 
-    def __init__(self,
-                 fitted_markov,
-                 chain_length,
-                 fraction_below_states):
+    def __init__(self, fitted_markov, chain_length, fraction_below_states):
         """Prepare to draw random realizations of the CDF per given process."""
 
         self._fitted_markov = fitted_markov
@@ -196,17 +196,21 @@ class DrawRandomCDF:
             initial_state_rv -= self.equilibrium_distro[initial_state]
             if initial_state_rv < 0:
                 break
-        simulated_chain = self._fitted_markov.extend_chain(self._chain_length,
-                                                           initial_state,
-                                                           True)
+        simulated_chain = self._fitted_markov.extend_chain(
+            self._chain_length, initial_state, True
+        )
         return self._fraction_below_states[simulated_chain].mean()
-#pylint: enable=too-few-public-methods
 
 
-def diagnose_emcee_quantile(regular_indicator_chain=None,
-                            num_below_states=None,
-                            num_walkers=0,
-                            variance_realizations=0):
+# pylint: enable=too-few-public-methods
+
+
+def diagnose_emcee_quantile(
+    regular_indicator_chain=None,
+    num_below_states=None,
+    num_walkers=0,
+    variance_realizations=0,
+):
     """
     Compute diagnostics of a quantile estimate based on emcee samples.
 
@@ -234,30 +238,34 @@ def diagnose_emcee_quantile(regular_indicator_chain=None,
         assert thin == 0
         return fail_result
 
-    sample_cdf = DrawRandomCDF(fitted_markov,
-                               regular_indicator_chain.size // thin,
-                               num_below_states / num_walkers)
+    sample_cdf = DrawRandomCDF(
+        fitted_markov,
+        regular_indicator_chain.size // thin,
+        num_below_states / num_walkers,
+    )
 
     cdf_realizations = numpy.empty(variance_realizations)
     for realiz in range(variance_realizations):
         cdf_realizations[realiz] = sample_cdf()
 
-    print('Mean(CDF realizations): ' + repr(cdf_realizations.mean()))
+    print("Mean(CDF realizations): " + repr(cdf_realizations.mean()))
 
     return (
-        numpy.array([
-            num_below_states[regular_indicator_chain].mean() / num_walkers,
-            sample_cdf.equilibrium_distro.dot(num_below_states) / num_walkers
-        ]),
-        numpy.var(cdf_realizations, ddof=1)**0.5,
-        thin
+        numpy.array(
+            [
+                num_below_states[regular_indicator_chain].mean() / num_walkers,
+                sample_cdf.equilibrium_distro.dot(num_below_states)
+                / num_walkers,
+            ]
+        ),
+        numpy.var(cdf_realizations, ddof=1) ** 0.5,
+        thin,
     )
 
 
-
-def get_emcee_quantile_diagnostics(binary_chain,
-                                   burnin_tolerance,
-                                   variance_realizations):
+def get_emcee_quantile_diagnostics(
+    binary_chain, burnin_tolerance, variance_realizations
+):
     """
     Return quantile convergence diagnostics like R&E95 but tuned to EMCEE chain.
 
@@ -307,16 +315,21 @@ def get_emcee_quantile_diagnostics(binary_chain,
     regular_indicator_chain, num_below_states = regularize_discrete_chain(
         num_below_chain[burnin:]
     )
-    return diagnose_emcee_quantile(regular_indicator_chain,
-                                   num_below_states,
-                                   binary_chain.shape[1],
-                                   variance_realizations)
+    return diagnose_emcee_quantile(
+        regular_indicator_chain,
+        num_below_states,
+        binary_chain.shape[1],
+        variance_realizations,
+    )
 
 
-def find_emcee_quantiles(samples,
-                         cdf_value,
-                         burnin_tolerance,
-                         variance_realizations):
+def find_emcee_quantiles(
+    samples,
+    cdf_value,
+    burnin_tolerance,
+    variance_realizations,
+    initial_burnin_step=1,
+):
     """
     Iterate between burn-in and PPF(cdf_value) to find quantiles & diagnostics.
 
@@ -335,6 +348,11 @@ def find_emcee_quantiles(samples,
             calculated by generating this many independent random realizations
             of the best fit Markov process to the thinned chain of number of
             walkers below `quantile`.
+
+        initial_burnin_step(int):    For chains with many steps it may be too
+            computationally intensive to try all possible burn-ins. This value
+            allows a crude search with the given step size which then gradually
+            gets refined by a factor of two.
 
     Returns:
         float:
@@ -363,50 +381,53 @@ def find_emcee_quantiles(samples,
 
     """
 
-    for burnin in range(samples.shape[0]):
-        quantile = KDEDistribution(
-            samples[burnin:].flatten(),
-            rdist(c=4, scale=0.05)
-        ).ppf(
-            cdf_value
-        )
+    burnin_step = initial_burnin_step
+    burnin_start = 0
+    full_chain_burnin = None
+    full_chain_quantile = None
+    while burnin_step >= 1:
+        for burnin in range(burnin_start, samples.shape[0], burnin_step):
+            quantile = KDEDistribution(
+                samples[burnin:].flatten(), rdist(c=4, scale=0.05)
+            ).ppf(cdf_value)
 
-        regular_indicator_chain, num_below_states = regularize_discrete_chain(
-            (samples < quantile).astype(int).sum(axis=1)
-        )
-        min_burnin = get_emcee_burnin(regular_indicator_chain, burnin_tolerance)
-        if burnin == 0:
-            full_chain_burnin = min_burnin
-            full_chain_quantile = quantile
-        if min_burnin > 0 and burnin >= min_burnin:
-            break
+            regular_indicator_chain, num_below_states = (
+                regularize_discrete_chain(
+                    (samples < quantile).astype(int).sum(axis=1)
+                )
+            )
+            min_burnin = get_emcee_burnin(
+                regular_indicator_chain, burnin_tolerance
+            )
+            if burnin == 0:
+                full_chain_burnin = min_burnin
+                full_chain_quantile = quantile
+            if 0 < min_burnin <= burnin:
+                break
+        if burnin_step > 1:
+            burnin_start = burnin - burnin_step
+        burnin_step //= 2
 
     print(
-        '\tBurn-in (CDF=%.2f) is %d/%d'
-        %
-        (
-            cdf_value,
-            (burnin if burnin >= min_burnin else full_chain_burnin),
-            samples.shape[0]
-        )
+        f"\tBurn-in (CDF={cdf_value:.2f}) is "
+        f"{(burnin if burnin >= min_burnin else full_chain_burnin):d}"
+        f"/{samples.shape[0]:d}"
     )
 
     if burnin < min_burnin:
         return (
             (full_chain_quantile,)
-            +
-            diagnose_emcee_quantile()
-            +
-            (full_chain_burnin,)
+            + diagnose_emcee_quantile()
+            + (full_chain_burnin,)
         )
 
     return (
         (quantile,)
-        +
-        diagnose_emcee_quantile(regular_indicator_chain,
-                                num_below_states,
-                                samples.shape[1],
-                                variance_realizations)
-        +
-        (burnin,)
+        + diagnose_emcee_quantile(
+            regular_indicator_chain,
+            num_below_states,
+            samples.shape[1],
+            variance_realizations,
+        )
+        + (burnin,)
     )

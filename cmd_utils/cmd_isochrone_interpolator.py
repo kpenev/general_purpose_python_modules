@@ -220,6 +220,16 @@ class CMDInterpolator:
             interpolate_to, quantities, self._grid, self._data
         )
 
+    def get_mini_range(self, meh, logage):
+        """Return the available mass range for the given [Fe/H] and log(age)."""
+
+        return grid_tracks_interpolate(
+            {"MH": meh, "logAge": logage, "Mini": "range"},
+            None,
+            self._grid,
+            self._data,
+        )
+
     def get_range(self, quantity):
         """Return the available interpolation range of the given quantity."""
 

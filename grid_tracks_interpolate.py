@@ -1,8 +1,11 @@
 """Define a function for multi-D interpolation of tracks on a grid."""
 
+import logging
 from functools import reduce
 
 import numpy
+
+_logger = logging.getLogger(__name__)
 
 
 def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
@@ -18,7 +21,9 @@ def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
         interpolate_to(dict):    The values of the independent variables at
             which the interpolated value is desired. Keys should be either in
             ``grid`` (see below) or the name of the indepnedent variable of the
-            tracks.
+            tracks. If the value of mass is set to 'range', instead of
+            interpolating, the renge over which interpolation is defined is
+            returned. In the latter case, quantities should be ``None``.
 
         quantities([str]):    A list of the quantities for which to find an
             interpolated value.
@@ -36,12 +41,15 @@ def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
 
         assert len(interpolate_to) == 1
         name, value = next(iter(interpolate_to.items()))
+        if value == "range":
+            assert quantities is None
+            return track[name][0], track[name][-1]
         if not track[name][0] <= value <= track[name][-1]:
             raise ValueError(
                 f"Interpolation only defined for {track[name][0]} <= {name} <= "
                 f"{track[name][-1]}. Attempting to evaluate at {name} = "
                 f"{value}",
-                name
+                name,
             )
         return tuple(
             numpy.interp(
@@ -52,6 +60,7 @@ def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
             for q in quantities
         )
 
+    track_var = (set(interpolate_to.keys()) - set(g[0] for g in grid)).pop()
     interpolate_to = interpolate_to.copy()
     var_name, var_grid = grid[0]
     target = interpolate_to.pop(var_name)
@@ -59,7 +68,8 @@ def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
         raise ValueError(
             f"Requested {var_name} ({target}) is outside the available "
             "interpolation range: "
-            f"{var_grid[0]} < {var_name} < {var_grid[-1]}", var_name
+            f"{var_grid[0]} < {var_name} < {var_grid[-1]}",
+            var_name,
         )
     above_ind = numpy.searchsorted(var_grid, target)
     data_step = reduce(lambda s, g: s * g[1].size, grid[1:], 1)
@@ -87,6 +97,11 @@ def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
         closest_values = (
             evaluate_track(data[above_ind - 1]),
             evaluate_track(data[above_ind]),
+        )
+    if interpolate_to[track_var] == "range":
+        return (
+            max(closest_values[0][0], closest_values[1][0]),
+            min(closest_values[0][1], closest_values[1][1]),
         )
     return numpy.array(
         [

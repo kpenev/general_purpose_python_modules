@@ -145,13 +145,16 @@ def setup_process(**config):
         if hasattr(os, "O_DSYNC"):  # Check if os.O_DSYNC exists
             flags |= os.O_DSYNC
 
-        io_destination = os.open(
-            std_out_err_fname,
-            flags,
-            mode=0o666,
-        )
-        os.dup2(io_destination, 1)
-        os.dup2(io_destination, 2)
+        try:
+            io_destination = os.open(
+                std_out_err_fname,
+                flags,
+                mode=0o666,
+            )
+            os.dup2(io_destination, 1)  # Redirect stdout
+            os.dup2(io_destination, 2)  # Redirect stderr
+        except OSError as e:
+            logging.error("Failed to redirect stdout/stderr: %s", e)
 
     ensure_directory(logging_fname)
 

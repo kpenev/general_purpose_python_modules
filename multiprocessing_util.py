@@ -7,6 +7,7 @@ import logging
 import re
 from glob import glob
 import inspect
+import sys
 
 try:
     import git
@@ -139,22 +140,8 @@ def setup_process(**config):
     logging_fname, std_out_err_fname = get_log_outerr_filenames(**config)
     if std_out_err_fname is not None:
         ensure_directory(std_out_err_fname)
-
-        # Define flags for opening the file
-        flags = os.O_WRONLY | os.O_TRUNC | os.O_CREAT
-        if hasattr(os, "O_DSYNC"):  # Check if os.O_DSYNC exists
-            flags |= os.O_DSYNC
-
-        try:
-            io_destination = os.open(
-                std_out_err_fname,
-                flags,
-                mode=0o666,
-            )
-            os.dup2(io_destination, 1)  # Redirect stdout
-            os.dup2(io_destination, 2)  # Redirect stderr
-        except OSError as e:
-            logging.error("Failed to redirect stdout/stderr: %s", e)
+        sys.stdout = open(std_out_err_fname, "w", encoding="utf-8")
+        sys.stderr = sys.stdout
 
     ensure_directory(logging_fname)
 

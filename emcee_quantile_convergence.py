@@ -40,9 +40,12 @@ def regularize_discrete_chain(input_chain):
         return None, None
 
     represented_states = numpy.unique(input_chain)
+    assert input_chain.min() >= 0
     if represented_states.size == input_chain.max() + 1:
+        print("Chain arleady regular.")
         return input_chain, represented_states
 
+    print("Regularizing irregular chain.")
     output_chain = numpy.empty(input_chain.shape, dtype=input_chain.dtype)
     for new, old in enumerate(represented_states):
         update = input_chain == old
@@ -246,6 +249,8 @@ def diagnose_emcee_quantile(
 
     cdf_realizations = numpy.empty(variance_realizations)
     for realiz in range(variance_realizations):
+        if realiz % 100 == 0:
+            print(f"Variance realization: {realiz}/{variance_realizations}")
         cdf_realizations[realiz] = sample_cdf()
 
     print("Mean(CDF realizations): " + repr(cdf_realizations.mean()))
@@ -290,7 +295,7 @@ def get_emcee_quantile_diagnostics(
                   approximating the thinned number walkers below quantile chain.
 
         float:
-            The variance of the quantile estimate above.
+            The standard deviation of the quantile estimate above.
 
         int:
             The thinning applied to the chain of number walkers below `quantile`
@@ -329,6 +334,7 @@ def find_emcee_quantiles(
     burnin_tolerance,
     variance_realizations,
     initial_burnin_step=1,
+    kde_scale=0,
 ):
     """
     Iterate between burn-in and PPF(cdf_value) to find quantiles & diagnostics.
@@ -353,6 +359,9 @@ def find_emcee_quantiles(
             computationally intensive to try all possible burn-ins. This value
             allows a crude search with the given step size which then gradually
             gets refined by a factor of two.
+
+        kde_scale(float):    If greater than 0, use a KDE with this scale to
+            estimate the quantile instead of a simple quantile.
 
     Returns:
         float:
@@ -381,15 +390,22 @@ def find_emcee_quantiles(
 
     """
 
+    print("Finding quantile for CDF value: " + repr(cdf_value))
     burnin_step = initial_burnin_step
     burnin_start = 0
     full_chain_burnin = None
     full_chain_quantile = None
     while burnin_step >= 1:
         for burnin in range(burnin_start, samples.shape[0], burnin_step):
-            quantile = KDEDistribution(
-                samples[burnin:].flatten(), rdist(c=4, scale=0.05)
-            ).ppf(cdf_value)
+            print(
+                f"Trying burn-in {burnin:d} out of {samples.shape[0]:d} samples"
+            )
+            if kde_scale > 0:
+                quantile = KDEDistribution(
+                    samples[burnin:].flatten(), rdist(c=4, scale=kde_scale)
+                ).ppf(cdf_value)
+            else:
+                quantile = numpy.quantile(samples[burnin:].flatten(), cdf_value)
 
             regular_indicator_chain, num_below_states = (
                 regularize_discrete_chain(
@@ -421,6 +437,10 @@ def find_emcee_quantiles(
             + (full_chain_burnin,)
         )
 
+    if burnin < samples.shape[0] - 1:
+        regular_indicator_chain, num_below_states = regularize_discrete_chain(
+            regular_indicator_chain[burnin:],
+        )
     return (
         (quantile,)
         + diagnose_emcee_quantile(

@@ -166,12 +166,10 @@ class DiscreteMarkov:
         """
 
         self._logger.debug(
-            "Fitting %d order Markov process to %d state chain of length %d:"
-            "\n%s",
+            "Fitting %d order Markov process to %d state chain of length %d.",
             order,
             num_states,
             chain.size,
-            numpy.array2string(chain, threshold=numpy.inf),
         )
         self._num_states = num_states
         self._order = order

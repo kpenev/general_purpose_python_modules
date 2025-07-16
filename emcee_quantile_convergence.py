@@ -401,10 +401,12 @@ def find_emcee_quantiles(
                 f"Trying burn-in {burnin:d} out of {samples.shape[0]:d} samples"
             )
             if kde_scale > 0:
+                print("Using KDE to estimate quantile.")
                 quantile = KDEDistribution(
                     samples[burnin:].flatten(), rdist(c=4, scale=kde_scale)
                 ).ppf(cdf_value)
             else:
+                print("Using simple quantile estimate.")
                 quantile = numpy.quantile(samples[burnin:].flatten(), cdf_value)
 
             regular_indicator_chain, num_below_states = (
@@ -439,7 +441,7 @@ def find_emcee_quantiles(
 
     if burnin < samples.shape[0] - 1:
         regular_indicator_chain, num_below_states = regularize_discrete_chain(
-            regular_indicator_chain[burnin:],
+            (samples[burnin:] < quantile).astype(int).sum(axis=1)
         )
     return (
         (quantile,)

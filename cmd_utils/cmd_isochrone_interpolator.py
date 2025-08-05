@@ -221,7 +221,7 @@ class CMDInterpolator:
         )
 
     def get_mini_range(self, meh, logage):
-        """Return the available mass range for the given [Fe/H] and log(age)."""
+        """Return the available mass range for the given [M/H] and log(age)."""
 
         return grid_tracks_interpolate(
             {"MH": meh, "logAge": logage, "Mini": "range"},
@@ -229,6 +229,52 @@ class CMDInterpolator:
             self._grid,
             self._data,
         )
+
+    def get_log_age_range(self, mini, meh):
+        """Return the available log(age) range for the given [M/H] and Mini."""
+
+        if self._grid[0][0] == "MH":
+            meh_values = self._grid[0][1]
+            age_values = self._grid[1][1]
+            meh_step = self._grid[1][1].size
+            age_step = 1
+        else:
+            age_values = self._grid[0][1]
+            meh_values = self._grid[1][1]
+            meh_step = 1
+            age_step = self._grid[1][1].size
+        closest_meh = numpy.searchsorted(meh_values, meh)
+        if meh_values[closest_meh] == meh:
+            closest_meh = [closest_meh]
+        elif closest_meh == 0:
+            raise ValueError(
+                f"Metallicity {meh} is below the range of the grid."
+            )
+        else:
+            closest_meh = [closest_meh - 1, closest_meh]
+        min_log_age = -numpy.inf
+        max_log_age = numpy.inf
+        for meh_index in closest_meh:
+            min_log_age = max(
+                min_log_age, self._data[meh_index * meh_step]["logAge"][0]
+            )
+            age_index = 0
+            while (
+                self._data[meh_index * meh_step + age_index * age_step]["Mini"][
+                    -1
+                ]
+                > mini
+                and age_index < age_values.size
+            ):
+                age_index += 1
+            if age_index == 0:
+                raise ValueError(
+                    f"Mass {mini} is above the range of the grid for "
+                    f"[M/H] = {meh}."
+                )
+            max_log_age = min(max_log_age, age_values[age_index - 1])
+
+        return min_log_age, max_log_age
 
     def get_range(self, quantity):
         """Return the available interpolation range of the given quantity."""
@@ -321,14 +367,29 @@ def plot_isochrone(cmd_fname):
     pyplot.show()
 
 
+def plot_age_range(cmd_fname, meh, mini_range):
+    """Plot the available log(age) range for the given [M/H] and Mini."""
+
+    interpolator = CMDInterpolator(cmd_fname)
+    plot_x = numpy.linspace(*mini_range, 100)
+    logage_range = numpy.array(
+        [list(interpolator.get_log_age_range(mini, meh)) for mini in plot_x]
+    ).T
+    pyplot.fill_between(
+        plot_x,
+        logage_range[0],
+        logage_range[1],
+        color="lightblue",
+        label=f"[M/H] = {meh}",
+    )
+    pyplot.show()
+
+
 if __name__ == "__main__":
-    plot_isochrone(
-        # os.path.expanduser(
-        #    "~/projects/git/CircularizationDissipationConstraints/data/"
-        #    "CMD_2.5Gyr_isochrone.dat"
-        # )
+    plot_age_range(
         os.path.expanduser(
-            "~/projects/git/general_purpose_python_modules/cmd_utils/"
-            "downloaded.ssv"
-        )
+            "~/projects/git/TESS_EB_Bayesian/data/isochrone_data_panstarss1.ssv"
+        ),
+        -2.1,
+        (0.1, 350.0),
     )

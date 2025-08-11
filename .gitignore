@@ -1,5 +1,6 @@
 # vim swap files
 .*.swp
+*.ssv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

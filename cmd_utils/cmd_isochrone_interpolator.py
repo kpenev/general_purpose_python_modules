@@ -371,7 +371,7 @@ def plot_age_range(cmd_fname, meh, mini_range):
     """Plot the available log(age) range for the given [M/H] and Mini."""
 
     interpolator = CMDInterpolator(cmd_fname)
-    plot_x = numpy.linspace(*mini_range, 100)
+    plot_x = numpy.linspace(*mini_range, 1000)
     logage_range = numpy.array(
         [list(interpolator.get_log_age_range(mini, meh)) for mini in plot_x]
     ).T

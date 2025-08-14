@@ -10,48 +10,11 @@ from scipy.stats import rdist
 
 from general_purpose_python_modules.mcmc_quantile_convergence import (
     get_approximate_markov,
+    regularize_discrete_chain,
 )
 from general_purpose_python_modules.kde import KDEDistribution
 
 _logger = logging.getLogger(__name__)
-
-
-def regularize_discrete_chain(input_chain):
-    """
-    Return a chain over only states represented in the input chain.
-
-    Args:
-        input_chain(array):    A chain of integers, possibly non-sequential.
-
-    Returns:
-        array(int):
-            An equivalent chain with all states in the input chain relabeled to
-            form a sequence of consecutive integers starting at 0.
-
-        array(int):
-            The state in the input chain that corresponds to each of the states
-            of the new chain.
-    """
-
-    while input_chain.size > 1 and (input_chain == input_chain[-1]).sum() == 1:
-        input_chain = input_chain[:-1]
-
-    if input_chain.size <= 1:
-        return None, None
-
-    represented_states = numpy.unique(input_chain)
-    assert input_chain.min() >= 0
-    if represented_states.size == input_chain.max() + 1:
-        print("Chain arleady regular.")
-        return input_chain, represented_states
-
-    print("Regularizing irregular chain.")
-    output_chain = numpy.empty(input_chain.shape, dtype=input_chain.dtype)
-    for new, old in enumerate(represented_states):
-        update = input_chain == old
-        output_chain[update] = new
-
-    return output_chain, represented_states
 
 
 def get_emcee_burnin(regular_indicator_chain, burnin_tolerance):
@@ -142,7 +105,7 @@ def get_emcee_burnin(regular_indicator_chain, burnin_tolerance):
     if numpy.unique(regular_indicator_chain).size == 1:
         return 0
 
-    fitted_markov, thin = get_approximate_markov(regular_indicator_chain)
+    fitted_markov, thin, _, _ = get_approximate_markov(regular_indicator_chain)
 
     if fitted_markov is None:
         return 0
@@ -213,6 +176,9 @@ def diagnose_emcee_quantile(
     num_below_states=None,
     num_walkers=0,
     variance_realizations=0,
+    samples=None,
+    burnin=None,
+    quantile=None,
 ):
     """
     Compute diagnostics of a quantile estimate based on emcee samples.
@@ -227,6 +193,14 @@ def diagnose_emcee_quantile(
 
         num_walkers(int):    How many walkers were used when running emcee.
 
+        variance_realizations(int):    Unsure. Kalo?
+
+        samples(array):    Emcee samples to approximate.
+
+        burnin(int):    The number of samples to discard before thinning.
+
+        quantile(float):    The quantile value to use for regularization.
+
     Returns:
         Same as get_emcee_quantile_diagnostics() return value except burnin.
     """
@@ -236,7 +210,18 @@ def diagnose_emcee_quantile(
     if regular_indicator_chain is None:
         return fail_result
 
-    fitted_markov, thin = get_approximate_markov(regular_indicator_chain)
+    fitted_markov, thin, new_num_below_states, new_chain = get_approximate_markov(
+        regular_indicator_chain,
+        None,
+        False,
+        samples,
+        burnin,
+        quantile
+    )
+    if new_num_below_states is not None:
+        num_below_states = new_num_below_states
+    if new_chain is not None:
+        regular_indicator_chain = new_chain
     if fitted_markov is None:
         assert thin == 0
         return fail_result
@@ -304,6 +289,10 @@ def get_emcee_quantile_diagnostics(
         int:
             The number of burn-in steps discarded.
     """
+
+    _logger.warning(
+        "FUNCTION (might be) DEPRECATED! Replace with diagnose_emcee_quantile()."
+    )
 
     num_below_chain = binary_chain.sum(axis=1)
     regular_indicator_chain, num_below_states = regularize_discrete_chain(
@@ -441,7 +430,7 @@ def find_emcee_quantiles(
 
     if burnin < samples.shape[0] - 1:
         regular_indicator_chain, num_below_states = regularize_discrete_chain(
-            (samples[burnin:] < quantile).astype(int).sum(axis=1)
+            (samples[burnin:] < quantile).astype(int).sum(axis=1) # TODO: Can probably be removed now?
         )
     return (
         (quantile,)
@@ -450,6 +439,9 @@ def find_emcee_quantiles(
             num_below_states,
             samples.shape[1],
             variance_realizations,
+            samples=samples,
+            burnin=burnin,
+            quantile=quantile,
         )
         + (burnin,)
     )

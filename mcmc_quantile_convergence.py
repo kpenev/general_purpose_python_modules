@@ -7,21 +7,70 @@ import numpy
 from general_purpose_python_modules.discrete_markov import \
     DiscreteMarkov
 
-def get_approximate_markov(chain, num_states=None):
+def regularize_discrete_chain(input_chain):
+    """
+    Return a chain over only states represented in the input chain.
+
+    Args:
+        input_chain(array):    A chain of integers, possibly non-sequential.
+
+    Returns:
+        array(int):
+            An equivalent chain with all states in the input chain relabeled to
+            form a sequence of consecutive integers starting at 0.
+
+        array(int):
+            The state in the input chain that corresponds to each of the states
+            of the new chain.
+    """
+
+    while input_chain.size > 1 and (input_chain == input_chain[-1]).sum() == 1:
+        input_chain = input_chain[:-1]
+
+    if input_chain.size <= 1:
+        return None, None
+
+    represented_states = numpy.unique(input_chain)
+    assert input_chain.min() >= 0
+    if represented_states.size == input_chain.max() + 1:
+        print("Chain already regular.")
+        return input_chain, represented_states
+
+    print("Regularizing irregular chain.")
+    output_chain = numpy.empty(input_chain.shape, dtype=input_chain.dtype)
+    for new, old in enumerate(represented_states):
+        update = input_chain == old
+        output_chain[update] = new
+
+    return output_chain, represented_states
+
+def get_approximate_markov(
+    chain,
+    num_states=None,
+    regularize=False,
+    quantile=None
+):
     """
     Return order 1 Markov process fit to thinned chain and the thinning used.
 
     Args:
         chain(array):    A chain of discrete values that will be thinned until
-            it is well approximated by an order 1 Markov process.
+            it is well-approximated by an order 1 Markov process.
 
         num_states(int):    The number of states the process samples over  (in
             case not all are represented in `chain`). If None, `chain.max()` is
             used.
 
+        regularize(bool):    If True, the chain will be regularized before each
+            fit. If False, the chain is assumed to already be regularized, and that
+            thinning it will not change the number of states.
+
+        quantile(float):    If regularize, the quantile value to use for
+            regularization.
+
     Returns:
         float, float:
-            The maximum likelihood estimet of the transition probabilities 0->1
+            The maximum likelihood estimate of the transition probabilities 0->1
             and 1->0 respectively.
 
         int:
@@ -31,31 +80,47 @@ def get_approximate_markov(chain, num_states=None):
 
 
     fitted_markov = DiscreteMarkov(samples_size=0)
-    if num_states is None:
-        num_states = chain.max() + 1
+    if regularize:
+        samples = chain
 
     thinning_statistic = 1
     thin = 0
+    num_below_states = None
     while thinning_statistic > 0:
         thin += 1
         if thin >  0.1 * chain.size:
             print('Thin %d too big. Giving up. Chain:' % thin)
             print(repr(chain))
-            return None, 0
+            return None, 0, None, None
+        
+        if regularize:
+            #if burnin < samples.shape[0] - 1:
+            regular_indicator_chain, num_below_states = regularize_discrete_chain(
+                (samples[::thin] < quantile).astype(int).sum(axis=1)
+            )
+            chain = regular_indicator_chain
+            if chain is None:
+                print('Chain regularization failed. Returning None.')
+                return None, 0, None, None
+            num_states = chain.max() + 1
+        
+        if num_states is None:
+            num_states = chain.max() + 1
+
         thinning_statistic = (
-            DiscreteMarkov(samples_size=0).fit(chain[::thin],
+            DiscreteMarkov(samples_size=0).fit(chain,
                                                num_states,
                                                2,
                                                True)
             -
-            fitted_markov.fit(chain[::thin], num_states, 1, True)
+            fitted_markov.fit(chain, num_states, 1, True)
             -
             num_states * (num_states - 1)**2 / 2.0
             *
-            numpy.log(chain[::thin].size)
+            numpy.log(chain.size)
         )
 
-    return fitted_markov, thin
+    return fitted_markov, thin, num_below_states, chain
 
 
 def get_approximate_binary_markov(binary_chain):

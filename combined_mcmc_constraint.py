@@ -29,7 +29,7 @@ class CombinedMCMCConstraint:
 
         solution = root_scalar(lambda x: cdf_func(x) - cdf_value,
                                bracket=(self._grid[0], self._grid[-1]))
-        assert solution.converged
+        assert solution.converged, repr(solution)
         return solution.root
 
 

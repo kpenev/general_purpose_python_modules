@@ -105,7 +105,7 @@ def get_emcee_burnin(regular_indicator_chain, burnin_tolerance):
     if numpy.unique(regular_indicator_chain).size == 1:
         return 0
 
-    fitted_markov, thin, _, _ = get_approximate_markov(regular_indicator_chain)
+    fitted_markov, thin = get_approximate_markov(regular_indicator_chain)[:2]
 
     if fitted_markov is None:
         return 0
@@ -172,32 +172,21 @@ class DrawRandomCDF:
 
 
 def diagnose_emcee_quantile(
-    regular_indicator_chain=None,
-    num_below_states=None,
+    samples=None,
     num_walkers=0,
     variance_realizations=0,
-    samples=None,
-    burnin=None,
     quantile=None,
 ):
     """
     Compute diagnostics of a quantile estimate based on emcee samples.
 
     Args:
-        regular_indicator_chain(array):    The first return value of
-            regularize_discrete_chain() given the input chain of number walkers
-            below a threshold value.
-
-        num_below_states(array):    The second return value of
-            regularize_discrete_chain().
+        samples(array):    The emcee samples of the quantity we are trying to
+            find the quantile of. Assumed to already have burn-in removed.
 
         num_walkers(int):    How many walkers were used when running emcee.
 
         variance_realizations(int):    Unsure. Kalo?
-
-        samples(array):    Emcee samples to approximate.
-
-        burnin(int):    The number of samples to discard before thinning.
 
         quantile(float):    The quantile value to use for regularization.
 
@@ -207,28 +196,24 @@ def diagnose_emcee_quantile(
 
     fail_result = (numpy.full(2, numpy.nan), numpy.nan, None)
 
-    if regular_indicator_chain is None:
+    if samples is None:
         return fail_result
 
-    fitted_markov, thin, new_num_below_states, new_chain = get_approximate_markov(
-        regular_indicator_chain,
-        None,
-        False,
+    fitted_markov, thin, num_below_states, new_chain = get_approximate_markov(
         samples,
-        burnin,
+        None,
+        True,
         quantile
     )
-    if new_num_below_states is not None:
-        num_below_states = new_num_below_states
     if new_chain is not None:
-        regular_indicator_chain = new_chain
+        samples = new_chain
     if fitted_markov is None:
         assert thin == 0
         return fail_result
 
     sample_cdf = DrawRandomCDF(
         fitted_markov,
-        regular_indicator_chain.size // thin,
+        samples.size // thin,
         num_below_states / num_walkers,
     )
 
@@ -243,7 +228,7 @@ def diagnose_emcee_quantile(
     return (
         numpy.array(
             [
-                num_below_states[regular_indicator_chain].mean() / num_walkers,
+                num_below_states[samples].mean() / num_walkers,
                 sample_cdf.equilibrium_distro.dot(num_below_states)
                 / num_walkers,
             ]
@@ -295,9 +280,7 @@ def get_emcee_quantile_diagnostics(
     )
 
     num_below_chain = binary_chain.sum(axis=1)
-    regular_indicator_chain, num_below_states = regularize_discrete_chain(
-        num_below_chain
-    )
+    regular_indicator_chain = regularize_discrete_chain(num_below_chain)[:1]
 
     if regular_indicator_chain is None:
         return diagnose_emcee_quantile() + (None,)
@@ -306,12 +289,8 @@ def get_emcee_quantile_diagnostics(
     if burnin >= regular_indicator_chain.size + 1:
         return diagnose_emcee_quantile() + (burnin,)
 
-    regular_indicator_chain, num_below_states = regularize_discrete_chain(
-        num_below_chain[burnin:]
-    )
     return diagnose_emcee_quantile(
-        regular_indicator_chain,
-        num_below_states,
+        num_below_chain[burnin:],
         binary_chain.shape[1],
         variance_realizations,
     )
@@ -428,19 +407,12 @@ def find_emcee_quantiles(
             + (full_chain_burnin,)
         )
 
-    if burnin < samples.shape[0] - 1:
-        regular_indicator_chain, num_below_states = regularize_discrete_chain(
-            (samples[burnin:] < quantile).astype(int).sum(axis=1) # TODO: Can probably be removed now?
-        )
     return (
         (quantile,)
         + diagnose_emcee_quantile(
-            regular_indicator_chain,
-            num_below_states,
+            samples[burnin:],
             samples.shape[1],
             variance_realizations,
-            samples=samples,
-            burnin=burnin,
             quantile=quantile,
         )
         + (burnin,)

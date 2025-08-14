@@ -47,9 +47,7 @@ def regularize_discrete_chain(input_chain):
 def get_approximate_markov(
     chain,
     num_states=None,
-    preregular=True,
-    samples=None,
-    burnin=None,
+    regularize=False,
     quantile=None
 ):
     """
@@ -57,27 +55,22 @@ def get_approximate_markov(
 
     Args:
         chain(array):    A chain of discrete values that will be thinned until
-            it is well approximated by an order 1 Markov process.
+            it is well-approximated by an order 1 Markov process.
 
         num_states(int):    The number of states the process samples over  (in
             case not all are represented in `chain`). If None, `chain.max()` is
             used.
 
-        preregular(bool):    If False, the chain will be regularized before each
-            fit. If True, the chain is assumed to already be regularized, and that
+        regularize(bool):    If True, the chain will be regularized before each
+            fit. If False, the chain is assumed to already be regularized, and that
             thinning it will not change the number of states.
 
-        samples(array):    If not preregular, the emcee samples we're approximating.
-
-        burnin(int):    If not preregular, the number of samples to discard from
-            the start of the chain before thinning.
-
-        quantile(float):    If not preregular, the quantile value to use for
+        quantile(float):    If regularize, the quantile value to use for
             regularization.
 
     Returns:
         float, float:
-            The maximum likelihood estimet of the transition probabilities 0->1
+            The maximum likelihood estimate of the transition probabilities 0->1
             and 1->0 respectively.
 
         int:
@@ -87,6 +80,8 @@ def get_approximate_markov(
 
 
     fitted_markov = DiscreteMarkov(samples_size=0)
+    if regularize:
+        samples = chain
 
     thinning_statistic = 1
     thin = 0
@@ -98,10 +93,10 @@ def get_approximate_markov(
             print(repr(chain))
             return None, 0, None, None
         
-        if not preregular:
+        if regularize:
             #if burnin < samples.shape[0] - 1:
             regular_indicator_chain, num_below_states = regularize_discrete_chain(
-                (samples[burnin::thin] < quantile).astype(int).sum(axis=1)
+                (samples[::thin] < quantile).astype(int).sum(axis=1)
             )
             chain = regular_indicator_chain
             if chain is None:

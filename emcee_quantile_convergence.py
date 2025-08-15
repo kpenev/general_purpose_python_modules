@@ -377,10 +377,10 @@ def find_emcee_quantiles(
                 print("Using simple quantile estimate.")
                 quantile = numpy.quantile(samples[burnin:].flatten(), cdf_value)
 
-            regular_indicator_chain, num_below_states = (
+            regular_indicator_chain = (
                 regularize_discrete_chain(
                     (samples < quantile).astype(int).sum(axis=1)
-                )
+                )[:1]
             )
             min_burnin = get_emcee_burnin(
                 regular_indicator_chain, burnin_tolerance

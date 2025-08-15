@@ -186,7 +186,7 @@ def diagnose_emcee_quantile(
 
         num_walkers(int):    How many walkers were used when running emcee.
 
-        variance_realizations(int):    Unsure. Kalo?
+        variance_realizations(int):    See find_emcee_quantiles().
 
         quantile(float):    The quantile value to use for regularization.
 

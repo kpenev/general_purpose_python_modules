@@ -702,6 +702,7 @@ class InitialValueFinder:
         try:
             assert(final_state.age==self.target_state.age)
         except AssertionError:
+            raise AssertionError(f"Final age does not match target age.")
             # Save the parameters and evolution to an astropy fits file. Parameters in header data.
             import os
             import datetime
@@ -814,8 +815,14 @@ class InitialValueFinder:
                 if numpy.isnan(x_train).any() or numpy.isnan(y_train):
                     logger.warning('NaNs in the data. Not saving.')
                     return
+                
                 params['type'] = param_type
-                model = poet_solver.POET_IC_Solver(**params)
+                try:
+                    model = poet_solver.POET_IC_Solver(**params)
+                except Exception as e:
+                    logger.error('Error in creating model: %s', repr(e))
+                    return
+                
                 if carepackage['lock'] is not None:
                     logger.debug('Getting parallel processing lock.')
                     carepackage['lock'].acquire()

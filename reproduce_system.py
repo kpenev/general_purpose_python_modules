@@ -401,7 +401,7 @@ def find_evolution(system,
 
     logger=logging.getLogger(__name__)
     laststeps = []
-    past_diffs = [scipy.nan,scipy.nan,scipy.nan]
+    past_diffs = [numpy.nan,numpy.nan,numpy.nan]
 
     def errfunc(variable_conditions,
                 fixed_conditions,
@@ -427,15 +427,15 @@ def find_evolution(system,
                 logger.debug('Target porb, obliq: %f, OBLIQUITY NOT YET HANDLED',porb_true)
                 print('Target porb, obliq: ',porb_true,' OBLIQUITY NOT YET HANDLED')
         def get_initial_values():
-            dL = scipy.nan
+            dL = numpy.nan
             if solve_type == "porb":
-                error_out = scipy.nan
+                error_out = numpy.nan
                 porb_i = variable_conditions
                 ecc_i  = fixed_conditions[0]
                 obliq_i = fixed_conditions[1]
                 thetype = '1d'
             else:
-                error_out = [scipy.nan,scipy.nan]
+                error_out = [numpy.nan,numpy.nan]
                 if solve_type == "ecc":
                     thetype = '2d'
                     dL = variable_conditions[0]
@@ -492,7 +492,7 @@ def find_evolution(system,
                 if new_ecc_i <= 0:
                     print('new_ecc_i is negative (or zero). Setting to 0. Final eccentricity must also be zero.')
                     new_ecc_i = 0
-                    new_point = [0,0,porb_found,scipy.nan]
+                    new_point = [0,0,porb_found,numpy.nan]
                 else:
                     logger.debug('TORSHA: ignore the next finish bcuz its from within errfun')
                     out = solve_for_point(new_ecc_i,porb_found,obliq_i)[0]
@@ -636,7 +636,7 @@ def find_evolution(system,
             logger.exception('Something unknown went wrong while trying to evolve the system with the given parameters: %s',repr(initial_conditions))
             raise
         porb_found, ecc_found = evolution.orbital_period[-1], evolution.eccentricity[-1]
-        obliq_found = scipy.nan
+        obliq_found = numpy.nan
 
         logger.debug('Found porb, ecc, obliq: %f, %f, %f',porb_found,ecc_found,obliq_found)
         logger.debug('Target porb, ecc, obliq: %f, %f, OBLIQUITY NOT YET HANDLED',porb_true,ecc_true)
@@ -670,7 +670,7 @@ def find_evolution(system,
                 print('laststeps is ',laststeps)
                 ehat_prime = find_ehat_prime()
             else:
-                ehat_prime = [scipy.nan,scipy.nan]
+                ehat_prime = [numpy.nan,numpy.nan]
             print('ehat_prime is ',ehat_prime)
             raise ValueError("solver and errfunc() have found initial values with acceptable results",1,evolution,ehat_prime)
         else:
@@ -797,7 +797,7 @@ def find_evolution(system,
             logger.exception('Failed to calculate min_porb_initial.')
             min_porb_initial = 0.0
         logger.debug('min_porb_initial: %f',min_porb_initial)
-        porb_min, porb_max = scipy.nan, scipy.nan
+        porb_min, porb_max = numpy.nan, numpy.nan
         porb_correct = search_porb if search_porb is not None else system.orbital_period.to_value("day")
         porb_initial = porb_correct * 3
         if porb_initial > max_porb_initial: # Don't need to check for min because it *should* automatically fail at that point
@@ -1088,7 +1088,7 @@ def find_evolution(system,
 
     initial_secondary_angmom = numpy.array(value_finder.get_secondary_initial_angmom())
     #initial_eccentricity='solve'
-    error=SimpleNamespace(eccentricity=[scipy.nan],orbital_period=[scipy.nan])
+    error=SimpleNamespace(eccentricity=[numpy.nan],orbital_period=[numpy.nan])
     if solve:
         try:
             if initial_eccentricity == 'solve': #TODO: make the order of p and e in (un)change_variables() match their order in other places
@@ -1108,13 +1108,13 @@ def find_evolution(system,
                 return solve_for_point(initial_guess[1],initial_guess[0],initial_guess[2],'1d','porb')
         except Exception as err:
             logger.exception('Solver issue. Error: %s',err)
-            return error,[scipy.nan,scipy.nan]
+            return error,[numpy.nan,numpy.nan]
     else:
         try:
             return value_finder.try_system(
                 [initial_porb.to_value("day"),initial_eccentricity,initial_obliquity],
                 initial_secondary_angmom
-            ),[scipy.nan,scipy.nan]
+            ),[numpy.nan,numpy.nan]
         except:
             logger.exception('Something went wrong while trying to evolve the system with the given parameters.')
             raise

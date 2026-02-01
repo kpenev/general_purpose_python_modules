@@ -71,6 +71,8 @@ def grid_tracks_interpolate(interpolate_to, quantities, grid, data):
             f"{var_grid[0]} < {var_name} < {var_grid[-1]}",
             var_name,
         )
+    if target < var_grid[0] or target > var_grid[-1]:
+        raise ValueError(f"{var_name}={target} is outside the grid range.")
     above_ind = numpy.searchsorted(var_grid, target)
     data_step = reduce(lambda s, g: s * g[1].size, grid[1:], 1)
     if var_grid[above_ind] == target:

@@ -200,10 +200,7 @@ def diagnose_emcee_quantile(
         return fail_result
 
     fitted_markov, thin, num_below_states, new_chain = get_approximate_markov(
-        samples,
-        None,
-        True,
-        quantile
+        samples, None, True, quantile
     )
     if new_chain is not None:
         samples = new_chain
@@ -321,7 +318,8 @@ def find_emcee_quantiles(
         variance_realizations(int):    Variance of the estimated CDF is
             calculated by generating this many independent random realizations
             of the best fit Markov process to the thinned chain of number of
-            walkers below `quantile`.
+            walkers below `quantile`. If set to zero, the standard deviation and
+            thinning are not estimated.
 
         initial_burnin_step(int):    For chains with many steps it may be too
             computationally intensive to try all possible burn-ins. This value
@@ -399,12 +397,19 @@ def find_emcee_quantiles(
         f"{(burnin if burnin >= min_burnin else full_chain_burnin):d}"
         f"/{samples.shape[0]:d}"
     )
+    if variance_realizations == 0:
+        if burnin < min_burnin:
+            return full_chain_quantile, max(
+                2 * samples.shape[0], full_chain_burnin
+            )
+
+        return quantile, burnin
 
     if burnin < min_burnin:
         return (
             (full_chain_quantile,)
             + diagnose_emcee_quantile()
-            + (full_chain_burnin,)
+            + (max(full_chain_burnin, 2 * samples.shape[0]),)
         )
 
     return (

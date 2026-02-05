@@ -28,10 +28,12 @@ def make_corner_plot(
         print("Setting range to:", corner_kwargs["range"])
     if "labels" not in corner_kwargs:
         corner_kwargs["labels"] = plot_data_frame.columns
-    corner(plot_data_frame, **corner_kwargs)
+    figure = corner(plot_data_frame, **corner_kwargs)
     if corner_plot_fname == "show":
         pyplot.show()
-    elif corner_plot_fname:
+        return None
+    if corner_plot_fname:
         pyplot.savefig(corner_plot_fname)
-    else:
-        assert corner_plot_fname is None
+        return None
+    assert corner_plot_fname is None
+    return figure

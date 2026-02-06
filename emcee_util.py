@@ -134,5 +134,5 @@ def load_initial_positions(
         starting_positions,
         starting_log_prob,
         starting_blobs,
-        positions_found
+        positions_found,
     )

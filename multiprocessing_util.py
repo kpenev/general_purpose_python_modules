@@ -8,6 +8,7 @@ import re
 from glob import glob
 import inspect
 import sys
+from . import ensure_directory
 
 try:
     import git
@@ -120,17 +121,6 @@ def setup_process(**config):
         None
     """
 
-    def ensure_directory(fname):
-        """Make sure the directory containing the given name exists."""
-
-        dirname = os.path.dirname(fname)
-        if dirname and not os.path.exists(dirname):
-            try:
-                os.makedirs(dirname)
-            except FileExistsError:
-                if not os.path.isdir(dirname):
-                    raise
-
     for param, value in default_config.items():
         if param not in config and (
             param != "logging_verbosity" or "verbose" not in config
@@ -140,8 +130,19 @@ def setup_process(**config):
     logging_fname, std_out_err_fname = get_log_outerr_filenames(**config)
     if std_out_err_fname is not None:
         ensure_directory(std_out_err_fname)
-        sys.stdout = open(std_out_err_fname, "w", encoding="utf-8")
-        sys.stderr = sys.stdout
+        out_err_file = open(std_out_err_fname, "w", encoding="utf-8")
+        #  Redirect at the OS file-descriptor level too, not just the Python
+        #  ``sys.stdout``/``sys.stderr`` objects, so that output written
+        #  straight to fd 1/2 by native extensions or a library that calls
+        #  ``exit()`` -- and crash tracebacks from ``faulthandler`` -- is
+        #  captured in this file instead of leaking to the original stdout/
+        #  stderr (where it is typically lost).
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(out_err_file.fileno(), 1)
+        os.dup2(out_err_file.fileno(), 2)
+        sys.stdout = out_err_file
+        sys.stderr = out_err_file
 
     ensure_directory(logging_fname)
 

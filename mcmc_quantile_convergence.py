@@ -82,17 +82,31 @@ def get_approximate_markov(
     fitted_markov = DiscreteMarkov(samples_size=0)
     if regularize:
         samples = chain
+        # Number of steps in the un-thinned chain (thinning is along axis 0).
+        original_length = samples.shape[0]
+    else:
+        # The full chain is thinned by ``thin`` on each iteration below. Keep an
+        # un-thinned reference and fix the number of states from it, so that
+        # thinning actually changes ``thinning_statistic`` and the loop can
+        # terminate (otherwise it re-fits the same full chain until ``thin``
+        # reaches ``0.1 * chain.size`` - effectively an infinite loop).
+        full_chain = chain
+        original_length = full_chain.size
+        if num_states is None:
+            num_states = full_chain.max() + 1
 
     thinning_statistic = 1
     thin = 0
     num_below_states = None
     while thinning_statistic > 0:
         thin += 1
-        if thin >  0.1 * chain.size:
+        # Always compare against the length of the original (un-thinned) chain,
+        # never the thinned chain.
+        if thin > 0.1 * original_length:
             print('Thin %d too big. Giving up. Chain:' % thin)
-            print(repr(chain))
+            print(repr(samples if regularize else full_chain))
             return None, 0, None, None
-        
+
         if regularize:
             #if burnin < samples.shape[0] - 1:
             regular_indicator_chain, num_below_states = regularize_discrete_chain(
@@ -103,9 +117,8 @@ def get_approximate_markov(
                 print('Chain regularization failed. Returning None.')
                 return None, 0, None, None
             num_states = chain.max() + 1
-        
-        if num_states is None:
-            num_states = chain.max() + 1
+        else:
+            chain = full_chain[::thin]
 
         thinning_statistic = (
             DiscreteMarkov(samples_size=0).fit(chain,

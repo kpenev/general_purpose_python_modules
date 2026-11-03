@@ -84,6 +84,16 @@ def get_log_outerr_filenames(existing_pid=False, **config):
         std_out_err_fname,
     )
 
+    if config.get("parent_pid"):
+        result = tuple(
+            os.path.join(
+                os.path.dirname(fname),
+                str(config["parent_pid"]),
+                os.path.basename(fname),
+            )
+            for fname in result
+        )
+
     if existing_pid:
         return tuple(sorted(glob(glob_str)) for glob_str in result)
 
@@ -127,28 +137,30 @@ def setup_process(**config):
         ):
             config[param] = value
 
+    all_loggers = [logging.root] + [
+        lgr
+        for lgr in logging.Logger.manager.loggerDict.values()
+        if isinstance(lgr, logging.Logger)
+    ]
+    for lgr in all_loggers:
+        for handler in lgr.handlers[:]:
+            lgr.removeHandler(handler)
+            handler.close()
+
     logging_fname, std_out_err_fname = get_log_outerr_filenames(**config)
     if std_out_err_fname is not None:
-        ensure_directory(std_out_err_fname)
-        out_err_file = open(std_out_err_fname, "w", encoding="utf-8")
-        #  Redirect at the OS file-descriptor level too, not just the Python
-        #  ``sys.stdout``/``sys.stderr`` objects, so that output written
-        #  straight to fd 1/2 by native extensions or a library that calls
-        #  ``exit()`` -- and crash tracebacks from ``faulthandler`` -- is
-        #  captured in this file instead of leaking to the original stdout/
-        #  stderr (where it is typically lost).
         sys.stdout.flush()
         sys.stderr.flush()
-        os.dup2(out_err_file.fileno(), 1)
-        os.dup2(out_err_file.fileno(), 2)
-        sys.stdout = out_err_file
-        sys.stderr = out_err_file
+        sys.stdout.close()
+        sys.stderr.close()
+        ensure_directory(std_out_err_fname)
+        sys.stdout = open(  # pylint: disable=consider-using-with
+            std_out_err_fname, "w", encoding="utf-8", buffering=1
+        )
+        sys.stderr = sys.stdout
+
 
     ensure_directory(logging_fname)
-
-    for handler in logging.root.handlers[:]:
-        logging.root.removeHandler(handler)
-        handler.close()
     logging_config = {
         "filename": logging_fname,
         "level": getattr(
@@ -156,11 +168,13 @@ def setup_process(**config):
             config.get("logging_verbosity", config.get("verbose")).upper(),
         ),
         "format": config["logging_message_format"],
+        "force": True,
     }
     if config.get("logging_datetime_format") is not None:
         logging_config["datefmt"] = config["logging_datetime_format"]
 
     logging.basicConfig(**logging_config)
+    logging.info("Starting process with configuration: %s", repr(config))
 
 
 def setup_process_map(config):

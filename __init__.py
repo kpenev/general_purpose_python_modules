@@ -9,7 +9,7 @@ from .grid_tracks_interpolate import grid_tracks_interpolate
 
 try:
     from .reproduce_system import find_evolution
-except ImportError:
+except:
     print("Failed to import find_evolution")
 
 

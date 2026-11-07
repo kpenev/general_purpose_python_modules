@@ -263,12 +263,14 @@ class CMDInterpolator:
                 min_log_age, self._data[meh_index * meh_step]["logAge"][0]
             )
             age_index = 0
+            # The bound is checked first: a star on every isochrone would
+            # otherwise index past the last age.
             while (
-                self._data[meh_index * meh_step + age_index * age_step]["Mini"][
-                    -1
-                ]
+                age_index < age_values.size
+                and self._data[meh_index * meh_step + age_index * age_step][
+                    "Mini"
+                ][-1]
                 > mini
-                and age_index < age_values.size
             ):
                 age_index += 1
             if age_index == 0:

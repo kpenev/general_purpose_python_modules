@@ -197,13 +197,16 @@ class CMDInterpolator:
             if len(values) > 1
         )
 
-    def __call__(self, quantities, **interpolate_to):
+    def __call__(self, quantities, clip=False, **interpolate_to):
         """
         Estimate the given quantities for a star of given initial mass & [Fe/H].
 
         Args:
             quantities(iterable of str):    The quantities to estimate. Should
                 be a subset of the columns in the CMD isochrone file.
+
+            clip(bool):    Clip the mass to each isochrone's range instead of
+                raising ValueError outside it (see `grid_tracks_interpolate()`).
 
             interpolate_to(dict):    The value of [Z/H], logAge and Mini/Mass of
                 the star for which to estimate the given quantities. Values for
@@ -213,11 +216,12 @@ class CMDInterpolator:
         Return:
             tuple of floats:
                 The values of the quantities estimated using linear
-                interpolation in all dimensions.
+                interpolation in all dimensions. If ``clip`` is True, a 2-tuple
+                of those and how far outside the isochrones the mass is.
         """
 
         return grid_tracks_interpolate(
-            interpolate_to, quantities, self._grid, self._data
+            interpolate_to, quantities, self._grid, self._data, clip
         )
 
     def get_mini_range(self, meh, logage):

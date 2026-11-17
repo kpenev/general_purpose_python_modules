@@ -180,9 +180,23 @@ class CMDInterpolator:
                 # pylint: enable=used-before-assignment
         return grid
 
-    def __init__(self, isochrone_fname, interp_var="Mini"):
-        """Interpolate within the given isochrone grid."""
+    def __init__(self, isochrone_fname, interp_var="Mini", method="linear"):
+        """
+        Interpolate within the given isochrone grid.
 
+        Args:
+            isochrone_fname(str):    The isochrone file downloaded from the CMD
+                interface.
+
+            interp_var(str):    The column to interpolate in along each
+                isochrone.
+
+            method(str):    The interpolation method, "linear" or "pchip" (see
+                `grid_tracks_interpolate()`). Stored as the ``method``
+                attribute, which may be changed later.
+        """
+
+        self.method = method
         with IsochroneFileIterator(isochrone_fname) as isochrone:
             self._data = [
                 numpy.genfromtxt(section, names=True) for section in isochrone
@@ -215,13 +229,19 @@ class CMDInterpolator:
 
         Return:
             tuple of floats:
-                The values of the quantities estimated using linear
-                interpolation in all dimensions. If ``clip`` is True, a 2-tuple
-                of those and how far outside the isochrones the mass is.
+                The values of the quantities estimated using the ``method``
+                attribute's interpolation in all dimensions. If ``clip`` is
+                True, a 2-tuple of those and how far outside the isochrones the
+                mass is.
         """
 
         return grid_tracks_interpolate(
-            interpolate_to, quantities, self._grid, self._data, clip
+            interpolate_to,
+            quantities,
+            self._grid,
+            self._data,
+            clip,
+            method=self.method,
         )
 
     def get_mini_range(self, meh, logage):

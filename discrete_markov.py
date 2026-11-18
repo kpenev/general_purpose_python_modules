@@ -129,7 +129,14 @@ class DiscreteMarkov:
         assert size > self._order
 
         if self._samples.size < self._num_samples + size:
-            self._samples.resize(self._num_samples + size)
+            # Grown into a new array, not resize()d in place: resize() refuses
+            # if it thinks anything else references the array, which Python
+            # 3.14 makes unreliable (it refused even freshly allocated ones).
+            grown = numpy.empty(
+                self._num_samples + size, dtype=self._samples.dtype
+            )
+            grown[: self._num_samples] = self._samples[: self._num_samples]
+            self._samples = grown
 
         for _ in range(size):
             self._samples[self._num_samples] = self.draw_sample(

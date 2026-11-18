@@ -69,13 +69,23 @@ def get_approximate_markov(
             regularization.
 
     Returns:
-        float, float:
-            The maximum likelihood estimate of the transition probabilities 0->1
-            and 1->0 respectively.
+        DiscreteMarkov or None:
+            The first order Markov process fitted to the thinned chain, or None
+            if no thinning makes it a good approximation.
 
         int:
             The thinning applied to the chain to ensure first order Markov
-            process is a good approximation.
+            process is a good approximation (0 on failure).
+
+        array or None:
+            If ``regularize``, the original state (e.g. the number of walkers
+            below the quantile) of each state of the regularized chain; None
+            otherwise or on failure.
+
+        array or None:
+            The chain the process was fitted to: the regularized (relabeled)
+            chain if ``regularize``, else the input thinned by ``thin``; None
+            on failure.
     """
 
 
@@ -154,7 +164,7 @@ def get_approximate_binary_markov(binary_chain):
             process is a good approximation.
     """
 
-    fitted_markov, thin = get_approximate_markov(binary_chain, 2)
+    fitted_markov, thin = get_approximate_markov(binary_chain, 2)[:2]
 
     if fitted_markov is None:
         assert thin == 0

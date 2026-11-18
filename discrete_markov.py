@@ -17,15 +17,15 @@ class DiscreteMarkov:
     ):
         """Create the Markov process."""
 
-        if transition_probabilities is not None:
-            self.set_probabilities(transition_probabilities)
-        else:
-            self.transition_probabilities = None
-
+        # Before set_probabilities(), which sets the order and number of states.
         self._samples = None
         self._num_samples = 0
         self._num_states = None
         self._order = None
+        if transition_probabilities is not None:
+            self.set_probabilities(transition_probabilities)
+        else:
+            self.transition_probabilities = None
         self.set_initial_state(reset=True, **initial_state_kwargs)
 
     def set_probabilities(self, transition_probabilities):

@@ -336,7 +336,7 @@ def find_evolution(system,
 
         max_age:    The maximum age up to which to calculate the evolution. If
             not specified, defaults to star's lifetime.
-        
+
         initial_porb:    The initial orbital period to start the evolution with
             if we are not attempting to solve for anything.
 
@@ -383,7 +383,7 @@ def find_evolution(system,
         solve:    If False, no attempt is made to find initial orbital period
             and/or eccentricity. Instead, the system parameters are assumed to
             be initial values.
-        
+
         max_iterations:    The maximum number of iterations the solver should
             perform.
 
@@ -457,8 +457,8 @@ def find_evolution(system,
                     raise ValueError("Invalid solve type",0)
             return dL,porb_i,ecc_i,obliq_i,thetype,error_out
         def errfunc_sanity_check():
-            if (numpy.isnan(ecc_i) or numpy.iscomplex(ecc_i) or 
-                numpy.isnan(porb_i) or numpy.iscomplex(porb_i) or 
+            if (numpy.isnan(ecc_i) or numpy.iscomplex(ecc_i) or
+                numpy.isnan(porb_i) or numpy.iscomplex(porb_i) or
                 numpy.isnan(obliq_i) or numpy.iscomplex(obliq_i)): # TODO: Obliquity not implemented
                 logger.warning('ecc_i, porb_i, or obliq_i is nan or imaginary: %f,%f,%f',
                             ecc_i,porb_i,obliq_i)
@@ -604,7 +604,7 @@ def find_evolution(system,
         logger.debug('ecc_sign: %f',ecc_sign)
 
         dL,porb_i,ecc_i,obliq_i,thetype,error_out = get_initial_values()
-            
+
         logger.debug('Here are the input values the solver is trying.')
         logger.debug('porb_i: %f',porb_i)
         logger.debug('ecc_i: %f',ecc_i)
@@ -615,13 +615,13 @@ def find_evolution(system,
         print('ecc_i: ',ecc_i)
         print('obliq_i: ',obliq_i)
         print('dL: ',dL)
-        
+
         initial_conditions = [porb_i,ecc_i,obliq_i]
 
         error = errfunc_sanity_check()
         if error is not None:
             return error
-        
+
         try:
             evolution = value_finder.try_system(initial_conditions,initial_secondary_angmom,
                                                 thetype,
@@ -664,7 +664,7 @@ def find_evolution(system,
         else:
             difference = [porb_diff,obliq_found-obliq_i]
             check = [orbital_period_tolerance,obliquity_tolerance]
-        
+
         if numpy.all(numpy.abs(difference) <= check):
             if len(laststeps) >= 3 and solve_type == "ecc":
                 print('laststeps is ',laststeps)
@@ -892,7 +892,7 @@ def find_evolution(system,
             repr(porb_min),
             repr(porb_max)
         )
-        
+
         if numpy.isnan(porb_min) or numpy.isnan(porb_max):
             logger.exception("porb_min or porb_max is nan")
             raise ValueError("porb_min or porb_max is nan",0)
@@ -1002,7 +1002,7 @@ def find_evolution(system,
         except Exception as e:
             logger.exception('Error during AI guess: %s',repr(e))
             logger.exception('Using fallback guess.')
-        
+
         initial_guess = [system.orbital_period.to_value("day"),system.eccentricity,0.0]  #TODO make obliq reflect system
         logger.debug('Old version of initial guess: %s',repr(initial_guess))
         newe = 0.5
@@ -1024,7 +1024,7 @@ def find_evolution(system,
     elif initial_eccentricity < 0 or initial_eccentricity >= 1:
         logger.error('Invalid initial eccentricity %f',initial_eccentricity)
         raise ValueError("Invalid initial eccentricity")
-    
+
     if isinstance(initial_obliquity, str):
         if initial_obliquity != 'solve':
             logger.error('Invalid initial obliquity %f',initial_obliquity)
@@ -1038,7 +1038,7 @@ def find_evolution(system,
 
     # Sanity check target age/mass combination and also target age < 10/11 Gyr
     # Also maybe this isn't the right place for this idk
-    
+
     #False positive
     #pylint: disable=no-member
     if disk_period is None:
@@ -1056,7 +1056,7 @@ def find_evolution(system,
     if 'max_time_step' not in extra_evolve_args:
         extra_evolve_args['max_time_step'] = 1e-3
     #pylint: enable=no-member
-    
+
     value_finder = InitialValueFinder(
         system=system,
         interpolator=interpolator,
@@ -1211,7 +1211,7 @@ def test_find_evolution(**kwargs):
     output=numpy.array(())
     with Pool(processNum,setup_process) as p:
         output=p.map(test_it,all_iteration_sets)
-    
+
     # Save the output to a file.
     numpy.savetxt("test_find_evolution_output_3.txt",output,fmt="%s")
 
@@ -1313,7 +1313,7 @@ if __name__ == '__main__':
         with Pool(processNum,setup_process) as p:
             output=p.map(test_it,ei_values)
         #output=test_it(e_min)
-        
+
         print('Full output is ', output)
         for i in range(len(output)):
             if not numpy.isnan(output[i]):

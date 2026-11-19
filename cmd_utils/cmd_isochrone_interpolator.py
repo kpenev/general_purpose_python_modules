@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Define a class that interpolates within a CMD isochrone grid."""
 
+import fcntl
+import json
+import os
 import os.path
+import tempfile
 
 from matplotlib import pyplot
 import numpy
@@ -73,6 +77,140 @@ class IsochroneFileIterator:
         """Close the underlying isochrone file."""
 
         self._isochrone.close()
+
+
+binary_format_version = 1
+
+
+def _read_text_sections(isochrone_fname):
+    """Return the header and the sections of a CMD isochrone text file."""
+
+    with IsochroneFileIterator(isochrone_fname) as isochrone:
+        sections = [
+            numpy.atleast_1d(numpy.genfromtxt(section, names=True))
+            for section in isochrone
+        ]
+        return isochrone.header, sections
+
+
+def _write_binary(isochrone_fname, binary_fname, index_fname):
+    """
+    Save the isochrone sections as one binary array plus an index.
+
+    The array holds the values exactly as parsed from the text file, so
+    interpolating from it is bit-identical. Each file is written to a temporary
+    file first and renamed into place, so readers never see a partial one.
+    """
+
+    source_stat = os.stat(isochrone_fname)
+    header, sections = _read_text_sections(isochrone_fname)
+    for section_index, section in enumerate(sections):
+        if section.dtype != sections[0].dtype:
+            raise ValueError(
+                f"Section {section_index} of {isochrone_fname} has columns "
+                f"{section.dtype.names}, unlike the first section "
+                f"({sections[0].dtype.names})."
+            )
+    directory = os.path.dirname(binary_fname)
+    with tempfile.NamedTemporaryFile(
+        dir=directory, suffix=".npy", delete=False
+    ) as binary_file:
+        numpy.save(binary_file, numpy.concatenate(sections))
+    os.replace(binary_file.name, binary_fname)
+    index = {
+        "format_version": binary_format_version,
+        "source_size": source_stat.st_size,
+        "source_mtime_ns": source_stat.st_mtime_ns,
+        "header": header,
+        "section_ends": numpy.cumsum(
+            [section.size for section in sections]
+        ).tolist(),
+    }
+    with tempfile.NamedTemporaryFile(
+        "w", dir=directory, suffix=".json", delete=False, encoding="utf-8"
+    ) as index_file:
+        json.dump(index, index_file)
+    os.replace(index_file.name, index_fname)
+
+
+def _read_current_index(isochrone_fname, index_fname):
+    """Return the index if it matches the current text file, else None."""
+
+    if not os.path.exists(index_fname):
+        return None
+    with open(index_fname, "r", encoding="utf-8") as index_file:
+        index = json.load(index_file)
+    source_stat = os.stat(isochrone_fname)
+    if (
+        index.get("format_version") != binary_format_version
+        or index["source_size"] != source_stat.st_size
+        or index["source_mtime_ns"] != source_stat.st_mtime_ns
+    ):
+        return None
+    return index
+
+
+def load_isochrone_sections(isochrone_fname, binary_dir=None):
+    """
+    Return the header and sections of an isochrone grid, memory mapped.
+
+    The sections are read from a binary copy of the text file, which is created
+    (or recreated, if the text file's size or modification time changed) when
+    needed. The copy is memory mapped read-only, so all processes on a machine
+    share one copy of the grid in memory, and loading needs no parsing. Only one
+    process at a time checks or creates the copy (a lock file next to it).
+
+    Args:
+        isochrone_fname(str):    The isochrone file downloaded from the CMD
+            interface.
+
+        binary_dir(str or None):    The directory holding the binary copy
+            (created if missing). If None, the directory of the text file. On
+            machines with networked file systems, a directory in node-local
+            memory (e.g. under /dev/shm) avoids reading over the network if
+            memory runs low.
+
+    Returns:
+        [str]:    The comment lines at the start of the text file.
+
+        [numpy field array]:    The sections of the grid (views into the memory
+            mapped copy, which cannot be modified).
+    """
+
+    if binary_dir is None:
+        binary_dir = os.path.dirname(os.path.abspath(isochrone_fname))
+    os.makedirs(binary_dir, exist_ok=True)
+    binary_base = os.path.join(
+        binary_dir, os.path.basename(isochrone_fname) + ".grid"
+    )
+    binary_fname = binary_base + ".npy"
+    index_fname = binary_base + ".json"
+    with open(binary_base + ".lock", "w", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        index = _read_current_index(isochrone_fname, index_fname)
+        if index is None or not os.path.exists(binary_fname):
+            _write_binary(isochrone_fname, binary_fname, index_fname)
+            index = _read_current_index(isochrone_fname, index_fname)
+            if index is None:
+                raise RuntimeError(
+                    f"{isochrone_fname} changed while its binary copy was "
+                    "being created. Try again."
+                )
+        # Mapped while locked, so a concurrent rebuild cannot pair this index
+        # with a different array.
+        data = numpy.load(binary_fname, mmap_mode="r")
+    section_ends = index["section_ends"]
+    if data.size != section_ends[-1]:
+        raise ValueError(
+            f"Binary copy {binary_fname} holds {data.size} rows, but its index "
+            f"lists {section_ends[-1]}."
+        )
+    # Plain array views of the memory map: faster to index than memmap objects.
+    data = data.view(numpy.ndarray)
+    return index["header"], [
+        data[start:end]
+        for start, end in zip([0] + section_ends[:-1], section_ends)
+    ]
 
 
 class CMDInterpolator:
@@ -180,14 +318,35 @@ class CMDInterpolator:
                 # pylint: enable=used-before-assignment
         return grid
 
-    def __init__(self, isochrone_fname, interp_var="Mini"):
-        """Interpolate within the given isochrone grid."""
+    def __init__(
+        self,
+        isochrone_fname,
+        interp_var="Mini",
+        method="linear",
+        binary_dir=None,
+    ):
+        """
+        Interpolate within the given isochrone grid.
 
-        with IsochroneFileIterator(isochrone_fname) as isochrone:
-            self._data = [
-                numpy.genfromtxt(section, names=True) for section in isochrone
-            ]
-            self.header = isochrone.header
+        Args:
+            isochrone_fname(str):    The isochrone file downloaded from the CMD
+                interface.
+
+            interp_var(str):    The column to interpolate in along each
+                isochrone.
+
+            method(str):    The interpolation method, "linear" or "pchip" (see
+                `grid_tracks_interpolate()`). Stored as the ``method``
+                attribute, which may be changed later.
+
+            binary_dir(str or None):    Where to keep the memory mapped binary
+                copy of the grid (see `load_isochrone_sections()`).
+        """
+
+        self.method = method
+        self.header, self._data = load_isochrone_sections(
+            isochrone_fname, binary_dir
+        )
         self.interp_var = interp_var
         self.isochrone_fname = isochrone_fname
         self._validate_input_data()
@@ -215,13 +374,19 @@ class CMDInterpolator:
 
         Return:
             tuple of floats:
-                The values of the quantities estimated using linear
-                interpolation in all dimensions. If ``clip`` is True, a 2-tuple
-                of those and how far outside the isochrones the mass is.
+                The values of the quantities estimated using the ``method``
+                attribute's interpolation in all dimensions. If ``clip`` is
+                True, a 2-tuple of those and how far outside the isochrones the
+                mass is.
         """
 
         return grid_tracks_interpolate(
-            interpolate_to, quantities, self._grid, self._data, clip
+            interpolate_to,
+            quantities,
+            self._grid,
+            self._data,
+            clip,
+            method=self.method,
         )
 
     def get_mini_range(self, meh, logage):
